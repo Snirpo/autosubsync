@@ -1,0 +1,44 @@
+{
+  "name": "autosubsync",
+  "version": "1.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "start": "npm run build && npm run watch",
+    "serve": "nodemon --inspect dist/server.js",
+    "watch": "concurrently -k -p \"[{name}]\" -n \"TypeScript,Node\" -c \"yellow.bold,green.bold\" \"npm run watch-ts\" \"npm run serve\"",
+    "build": "npm run build-ts",
+    "build-ts": "tsc",
+    "watch-ts": "tsc -w",
+    "tslint": "tslint -c tslint.json -p tsconfig.json",
+    "testts": "tsc && node dist/test.js"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "dependencies": {
+    "async": "^2.1.2",
+    "bluebird": "^3.5.0",
+    "body-parser": "^1.15.2",
+    "errorhandler": "^1.4.3",
+    "express": "^4.14.0",
+    "express-flash": "^0.0.2",
+    "express-session": "^1.14.2",
+    "express-validator": "^3.1.3",
+    "fluent-ffmpeg": "^2.1.2",
+    "fs-extra": "^4.0.1",
+    "globby": "^6.1.0",
+    "lodash": "^4.17.4",
+    "moment": "^2.18.1",
+    "morgan": "^1.7.0",
+    "talisman": "^0.19.1",
+    "vad": "git+https://github.com/voixen/voixen-vad.git"
+  },
+  "devDependencies": {
+    "@types/lodash": "^4.14.63",
+    "@types/node": "^8.0.22",
+    "concurrently": "^3.4.0",
+    "tslint": "^5.0.0",
+    "typescript": "^2.4.2"
+  }
+}
