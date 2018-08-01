@@ -1,16 +1,29 @@
+import {promisify} from "util";
+import * as promisifyAll from "util-promisifyall";
 import {SrtBlock, SrtReader} from "./srt/srt";
 
 const VAD = require('vad').vad.VAD;
+promisifyAll(VAD.prototype);
+
 import * as FFmpeg from 'fluent-ffmpeg';
 import {Matcher} from "./matcher/matcher";
 import * as fs from "fs";
+import * as speech from "@google-cloud/speech";
+
+
+const speechConfig = {
+    encoding: 'LINEAR16',
+    sampleRateHertz: 16000,
+    languageCode: 'en-US',
+    model: "video"
+};
 
 const inFile = process.argv[2];
 const srtFile = process.argv[3];
 
 const audioChannels = 1;
 const audioFrequency = 16000.0;
-const bitsPerSample = 32; // multiple of 8
+const bitsPerSample = 16; // multiple of 8
 const timeMultiplier = (1000 / audioFrequency) / ((bitsPerSample / 8) * audioChannels);
 const decoderChunkSize = 12800;
 
@@ -25,7 +38,7 @@ function getFFmpeg(inFile: string) {
         .duration(duration)
         .withAudioChannels(audioChannels)
         .withAudioFrequency(audioFrequency)
-        .toFormat('f' + bitsPerSample.toString() + 'le');
+        .toFormat('s' + bitsPerSample.toString() + 'le');
 }
 
 SrtReader.readBlocks(srtFile)
@@ -44,8 +57,9 @@ function synchronize(inFile: string, lines: SrtBlock[]): Promise<{}> {
     return new Promise((resolve, reject) => {
         const ffmpeg = getFFmpeg(inFile);
         const vad = new VAD(VAD.MODE_NORMAL);
-        const readableStream = ffmpeg.pipe();
-        const writeStream = fs.createWriteStream("test.raw");
+        const audioStream = ffmpeg.pipe();
+        const speechClient = new speech.SpeechClient();
+        //const writeStream = fs.createWriteStream("test.raw");
         let byteCount = 0;
 
         ffmpeg.on("error", function (err) {
@@ -58,8 +72,26 @@ function synchronize(inFile: string, lines: SrtBlock[]): Promise<{}> {
             reject(err);
         });
 
+        let index = 0;
+        let average = 0;
+        let startTime = 0;
+        let inSpeech = false;
+
+        const recognizeStream = speechClient
+            .streamingRecognize({
+                config: speechConfig,
+                interimResults: true
+            })
+            .on('error', console.error)
+            .on('data', data => {
+                console.log(
+                    `Transcription: ${data.results[0].alternatives[0].transcript}`
+                );
+            });
+
         ffmpeg.on('end', function () {
             console.log("end");
+            recognizeStream.destroy();
             try {
                 //decoder.endUtt();
             } catch (err) {
@@ -68,20 +100,26 @@ function synchronize(inFile: string, lines: SrtBlock[]): Promise<{}> {
             resolve(average);
         });
 
-        let index = 0;
-        let average = 0;
-        let startTime = 0;
-        let inSpeech = false;
-
-        readableStream.on('data', function (data) {
+        audioStream.on('data', function (data: Buffer) {
 
             //writeStream.write(data);
-            vad.processAudio(data, audioFrequency, function(error, event) {
-                console.log(event);
-                if (event === VAD.EVENT_VOICE) {
-                   writeStream.write(data);
-                }
-            })
+            const floatData = new Buffer(data.length * 2);
+            for (let i = 0; i < data.length; i+=2) {
+                const intVal = data.readInt16LE(i);
+                const floatVal = intVal / 32768.0;
+                floatData.writeFloatLE(floatVal, i * 2);
+            }
+
+            recognizeStream.write(data);
+
+            // vad.processAudioAsync(floatData, audioFrequency).then(event => {
+            //     //console.log(event);
+            //     if (event === VAD.EVENT_VOICE) {
+            //         //console.log("voice");
+            //         recognizeStream.write(data);
+            //         //writeStream.write(data);
+            //     }
+            // })
 
             //for (let i = 0; i < data.length; i += decoderChunkSize) {
             //     const time = timeMultiplier * byteCount;
