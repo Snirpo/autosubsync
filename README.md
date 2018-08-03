@@ -1,3 +1,3 @@
 # autosubsync
 
-TODO
+This project is WIP
