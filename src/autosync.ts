@@ -1,15 +1,17 @@
-import {promisify} from "util";
-import * as promisifyAll from "util-promisifyall";
+import * as stream from "highland";
+
 import {SrtBlock, SrtReader} from "./srt/srt";
 
-const VAD = require('vad').vad.VAD;
-promisifyAll(VAD.prototype);
+import * as VAD from "node-vad";
+VAD.prototype.processAudioStream = stream.wrapCallback(VAD.prototype.processAudio);
+
 
 import * as FFmpeg from 'fluent-ffmpeg';
 import {Matcher} from "./matcher/matcher";
 import * as fs from "fs";
 import * as speech from "@google-cloud/speech";
 import {Transform} from "stream";
+import {start} from "repl";
 
 const inFile = process.argv[2];
 const srtFile = process.argv[3];
@@ -61,92 +63,93 @@ function synchronize(inFile: string, lines: SrtBlock[]): Promise<{}> {
         const speechClient = new speech.SpeechClient();
         //const writeStream = fs.createWriteStream("test.raw");
 
-        const recognizeStream = speechClient
-            .streamingRecognize({
-                config: speechConfig,
-                //interimResults: true
-            });
+        // const recognizeStream = speechClient
+        //     .streamingRecognize({
+        //         config: speechConfig,
+        //         //interimResults: true
+        //     });
 
-        //TODO: dont like it...
-        const context = {
-            startTime: 0
-        };
-
-        audioStream
-            .pipe(createSpeechFilter(context))
-            .pipe(recognizeStream)
-            .pipe(createMatcher(lines, context))
-            .on('error', console.error)
-            .on('data', data => {
+        stream(audioStream)
+            .map(createTimer())
+            .flatMap(createSpeechFilter())
+            // .pipe(recognizeStream)
+            // .pipe(createMatcher(lines))
+            // .on('error', console.error)
+            .each(data => {
                 console.log(data);
             });
     });
 }
 
-function createMatcher(lines: SrtBlock[], context) {
-    let index = 0;
-    let average = 0;
-
-    return new Transform({
-        objectMode: true,
-        transform: (data: any, _, done) => {
-            const hyp = data.results[0].alternatives[0].transcript;
-            //console.log(hyp);
-
-            for (let j = index; j < lines.length; j++) {
-                const line = lines[j];
-                //const distance = damerauLevenshtein(hyp.hypstr, line.text);
-                //const matchPercentage = 1 - (distance / Math.max(hyp.hypstr.length, line.text.length));
-                const matchPercentage = Matcher.calculateSentenceMatchPercentage(hyp, line.text);
-                //console.log(matchPercentage);
-
-                if (matchPercentage > matchTreshold) {
-                    index = j;
-                    const timeDiff = Math.abs(line.startTime - (seekTimeMs + context.startTime));
-                    average = average === 0 ? timeDiff : (average + timeDiff) / 2;
-                    done(null, "----Match:" + line.text + "\n----Hyp:" + hyp + "\n----timeDiff: " + timeDiff + "\n ----percentage: " + matchPercentage);
-                    return;
-                }
-            }
-            done(null, "No match found");
-        }
-    })
+function createTimer() {
+    let byteCount = 0;
+    return (data: Buffer) => {
+        const time = timeMultiplier * byteCount;
+        byteCount += data.length;
+        return {time: time, byteCount: byteCount, data: data};
+    }
 }
 
-function createSpeechFilter(context) {
-    const vad = new VAD(VAD.MODE_NORMAL);
+// function createMatcher(lines: SrtBlock[]): Transform {
+//     let index = 0;
+//     let average = 0;
+//
+//     return new Transform({
+//         objectMode: true,
+//         transform: (data: any, _, done) => {
+//             const hyp = data.results[0].alternatives[0].transcript;
+//             //console.log(hyp);
+//
+//             for (let j = index; j < lines.length; j++) {
+//                 const line = lines[j];
+//                 //const distance = damerauLevenshtein(hyp.hypstr, line.text);
+//                 //const matchPercentage = 1 - (distance / Math.max(hyp.hypstr.length, line.text.length));
+//                 const matchPercentage = Matcher.calculateSentenceMatchPercentage(hyp, line.text);
+//                 //console.log(matchPercentage);
+//
+//                 if (matchPercentage > matchTreshold) {
+//                     index = j;
+//                     const timeDiff = Math.abs(line.startTime - (seekTimeMs + context.startTime));
+//                     average = average === 0 ? timeDiff : (average + timeDiff) / 2;
+//                     done(null, "----Match:" + line.text + "\n----Hyp:" + hyp + "\n----timeDiff: " + timeDiff + "\n ----percentage: " + matchPercentage);
+//                     return;
+//                 }
+//             }
+//             done(null, "No match found");
+//         }
+//     })
+// }
+
+function createSpeechFilter() {
+    const vad = new VAD(VAD.Mode.MODE_NORMAL);
     let inSpeech = false;
-    let byteCount = 0;
+    let startTime = 0;
 
-    return new Transform({
-        transform: (data: Buffer, _, done) => {
-            const floatData = new Buffer(data.length * 2);
-            for (let i = 0; i < data.length; i += 2) {
-                const intVal = data.readInt16LE(i);
-                const floatVal = intVal / 32768.0;
-                floatData.writeFloatLE(floatVal, i * 2);
-            }
-
-            const time = timeMultiplier * byteCount;
-            vad.processAudioAsync(floatData, audioFrequency).then(event => {
-                //console.log(event);
-                if (event === VAD.EVENT_VOICE) {
-                    if (!inSpeech) {
-                        console.log("speech");
-                        context.startTime = time;
-                        inSpeech = true;
-                    }
-                    done(null, data);
-                }
-                else {
-                    inSpeech = false;
-                    done();
-                }
-            }).catch(error => done(error));
-
-            byteCount += data.length;
+    return (obj: { time, data }) => {
+        const floatData = new Buffer(obj.data.length * 2);
+        for (let i = 0; i < obj.data.length; i += 2) {
+            const intVal = obj.data.readInt16LE(i);
+            const floatVal = intVal / 32768.0;
+            floatData.writeFloatLE(floatVal, i * 2);
         }
-    })
+
+        return vad.processAudioStream(floatData, audioFrequency).map(event => {
+            //console.log(event);
+            if (event === VAD.EVENT_VOICE) {
+                if (!inSpeech) {
+                    startTime = obj.time;
+                    inSpeech = true;
+                }
+            }
+            else {
+                inSpeech = false;
+                startTime = 0;
+            }
+            return {inSpeech: inSpeech, startTime: startTime, time: obj.time, data: obj.data};
+        });
+
+
+    }
 }
 
 

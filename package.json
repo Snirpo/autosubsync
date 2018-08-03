@@ -18,10 +18,11 @@
     "async": "^2.1.2",
     "bluebird": "^3.5.0",
     "fluent-ffmpeg": "^2.1.2",
+    "highland": "^2.13.0",
     "lodash": "^4.17.4",
     "talisman": "^0.19.1",
     "util-promisifyall": "^1.0.4",
-    "vad": "git+https://github.com/voixen/voixen-vad.git"
+    "node-vad": "git+https://github.com/snirpo/node-vad.git"
   },
   "devDependencies": {
     "@types/lodash": "^4.14.63",
