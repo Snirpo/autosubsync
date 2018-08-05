@@ -169,8 +169,8 @@ export class MappingStream extends Duplex {
             else this.emit('error', err);
         }
 
-        if (this._readable && this._readable.destroy) this._readable.destroy();
-        if (this._writable && this._writable.destroy) this._writable.destroy();
+        this._readable.destroy();
+        this._writable.destroy();
 
         this.emit('close');
     }
@@ -179,7 +179,6 @@ export class MappingStream extends Duplex {
         if (this.destroyed) return cb();
         if (this._corked) return onuncork(this, this._write.bind(this, data, enc, cb));
         if (data === SIGNAL_FLUSH) return this._finish(cb);
-        if (!this._writable) return cb();
 
         if (this._writable.write(data) === false) this._ondrain = cb;
         else cb()
