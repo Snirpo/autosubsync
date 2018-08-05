@@ -6,7 +6,7 @@ const shift = require('stream-shift');
 const SIGNAL_FLUSH = Buffer.from([0]);
 
 const onuncork = function (self, fn) {
-    if (self._corked) self.once('uncork', fn);
+    if (self._corked) self.once('uncork', fn)
     else fn()
 };
 
@@ -180,7 +180,7 @@ export class MappingStream extends Duplex {
         if (this._corked) return onuncork(this, this._write.bind(this, data, enc, cb));
         if (data === SIGNAL_FLUSH) return this._finish(cb);
 
-        if (this._writable.write(data) === false) this._ondrain = cb;
+        if (this._writable.write(data, enc) === false) this._ondrain = cb;
         else cb()
     }
 
