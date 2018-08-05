@@ -1,17 +1,12 @@
-import * as stream from "highland";
+import * as Stream from "highland";
 
 import {SrtBlock, SrtReader} from "./srt/srt";
 
 import * as VAD from "node-vad";
-VAD.prototype.processAudioStream = stream.wrapCallback(VAD.prototype.processAudio);
-
-
 import * as FFmpeg from 'fluent-ffmpeg';
-import {Matcher} from "./matcher/matcher";
-import * as fs from "fs";
 import * as speech from "@google-cloud/speech";
-import {Transform} from "stream";
-import {start} from "repl";
+
+VAD.prototype.processAudioStream = Stream.wrapCallback(VAD.prototype.processAudio);
 
 const inFile = process.argv[2];
 const srtFile = process.argv[3];
@@ -31,7 +26,7 @@ const speechConfig = {
 
 const seekTime = 600; // 10 minutes
 const seekTimeMs = seekTime * 1000;
-const duration = 30;
+const duration = 15;
 const matchTreshold = 0.80;
 
 function getFFmpeg(inFile: string) {
@@ -63,30 +58,63 @@ function synchronize(inFile: string, lines: SrtBlock[]): Promise<{}> {
         const speechClient = new speech.SpeechClient();
         //const writeStream = fs.createWriteStream("test.raw");
 
-        // const recognizeStream = speechClient
-        //     .streamingRecognize({
-        //         config: speechConfig,
-        //         //interimResults: true
-        //     });
+        const recognizeStream = speechClient
+            .streamingRecognize({
+                config: speechConfig,
+                //interimResults: true
+            });
 
-        stream(audioStream)
-            .map(createTimer())
+        Stream(audioStream)
+        //.through(recognizeStream)
+            .map(createTimestamper())
             .flatMap(createSpeechFilter())
+            //.tap(console.log)
+            .flatMap(createRecognizer())
+            //.tap(console.log)
             // .pipe(recognizeStream)
             // .pipe(createMatcher(lines))
             // .on('error', console.error)
+            // .errors(function (err, push) {
+            //     console.log('Caught error:', err.message);
+            // })
             .each(data => {
-                console.log(data);
+                //console.log(JSON.stringify(data));
             });
     });
 }
 
-function createTimer() {
+function createTimestamper() {
     let byteCount = 0;
     return (data: Buffer) => {
         const time = timeMultiplier * byteCount;
         byteCount += data.length;
         return {time: time, byteCount: byteCount, data: data};
+    }
+}
+
+function createRecognizer() {
+    const speechClient = new speech.SpeechClient();
+    let recognizeStream = null;
+
+    return (obj: { inSpeech: boolean, startTime: number, time: number, data: Buffer }) => {
+        //if (obj.inSpeech) {
+        if (!recognizeStream) {
+            recognizeStream = speechClient.streamingRecognize({
+                config: speechConfig,
+            });
+            //     .map(speechData => {
+            //     return {
+            //         ...obj,
+            //         speech: speechData
+            //     }
+            // });
+        }
+        return Stream([obj.data]).tap(console.log).through(recognizeStream);
+        // }
+        // const stream = recognizeStream;
+        // recognizeStream = null;
+        // stream.end();
+        // return stream;
     }
 }
 
@@ -126,16 +154,12 @@ function createSpeechFilter() {
     let startTime = 0;
 
     return (obj: { time, data }) => {
-        const floatData = new Buffer(obj.data.length * 2);
-        for (let i = 0; i < obj.data.length; i += 2) {
-            const intVal = obj.data.readInt16LE(i);
-            const floatVal = intVal / 32768.0;
-            floatData.writeFloatLE(floatVal, i * 2);
-        }
+        return vad.processAudioStream(obj.data, audioFrequency).map(event => {
+            if (event === VAD.Event.EVENT_ERROR) {
+                throw new Error("Error in VAD");
+            }
 
-        return vad.processAudioStream(floatData, audioFrequency).map(event => {
-            //console.log(event);
-            if (event === VAD.EVENT_VOICE) {
+            if (event === VAD.Event.EVENT_VOICE) {
                 if (!inSpeech) {
                     startTime = obj.time;
                     inSpeech = true;
@@ -145,10 +169,73 @@ function createSpeechFilter() {
                 inSpeech = false;
                 startTime = 0;
             }
-            return {inSpeech: inSpeech, startTime: startTime, time: obj.time, data: obj.data};
+
+            return {
+                ...obj,
+                inSpeech: inSpeech,
+                startTime: startTime
+            };
         });
 
 
+    }
+}
+
+function through(src, target, selector?) {
+    const output = Stream();
+    target.pause();
+    src.on('error', writeErr);
+    target.on('error', writeErr);
+    return pipeStream(src, target, selector).pipe(output);
+
+    function writeErr(err) {
+        output.write(err);
+    }
+}
+
+function pipeStream(src, dest, selector?) {
+    let resume = null;
+    const s = Stream.consume(function (err, x, push, next) {
+        let canContinue;
+        if (err) {
+            src.emit('error', err);
+            canContinue = true;
+        }
+        else if (x === Stream.nil) {
+            dest.end();
+            return;
+        }
+        else {
+            canContinue = dest.write(x);
+        }
+
+        if (canContinue !== false) {
+            next();
+        }
+        else {
+            resume = next;
+        }
+    });
+
+    dest.on('drain', onConsumerDrain);
+
+    // Since we don't keep a reference to piped-to streams,
+    // save a callback that will unbind the event handler.
+    src._destructors.push(function () {
+        dest.removeListener('drain', onConsumerDrain);
+    });
+
+    dest.emit('pipe', src);
+
+    s.resume();
+    return dest;
+
+    function onConsumerDrain() {
+        if (resume) {
+            const oldResume = resume;
+            resume = null;
+            oldResume();
+        }
     }
 }
 
