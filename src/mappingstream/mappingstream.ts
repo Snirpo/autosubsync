@@ -10,18 +10,6 @@ const onuncork = function (self, fn) {
     else fn()
 };
 
-const destroyer = function (self) {
-    return function (err) {
-        if (err) self.destroy(self, err.message === 'premature close' ? null : err);
-        else if (!self._ended) self.end()
-    }
-};
-
-const end = function (ws, fn) {
-    if (ws._writableState.finished) return fn();
-    return ws.end(fn);
-};
-
 export class MappingStream extends Duplex {
     private _writable = null;
     private _readable = null;
@@ -36,18 +24,25 @@ export class MappingStream extends Duplex {
 
     private destroyed = false;
 
-    constructor(stream, opts) {
+    constructor(writable, readable, opts: any = {}) {
         super(opts);
 
-        this.setWritable(stream);
-        this.setReadable(stream);
+        this.setWritable(writable);
+        this.setReadable(readable);
     }
 
-    static obj(stream, opts) {
-        if (!opts) opts = {};
+    static obj(writable, readable, opts: any = {}) {
         opts.objectMode = true;
         opts.highWaterMark = 16;
-        return new MappingStream(stream, opts)
+        return new MappingStream(writable, readable, opts)
+    }
+
+    static of(writable, readable, opts: any = {}) {
+        return new MappingStream(writable, readable, opts);
+    }
+
+    static ofDuplex(stream, opts: any = {}) {
+        return new MappingStream(stream, stream, opts);
     }
 
     cork() {
@@ -71,7 +66,10 @@ export class MappingStream extends Duplex {
             return;
         }
 
-        const unend = eos(writable, {writable: true, readable: false}, destroyer(this));
+        const unend = eos(writable, {writable: true, readable: false}, (err) => {
+            if (err) this.destroy(err.message === 'premature close' ? null : err);
+            else if (!this._ended) this.end()
+        });
 
         const ondrain = () => {
             const ondrain = this._ondrain;
@@ -101,16 +99,19 @@ export class MappingStream extends Duplex {
             return
         }
 
-        if (readable === null || readable === false) {
+        if (!readable) {
             this.push(null);
             this.resume();
-            return
+            return;
         }
 
-        const unend = eos(readable, {writable: false, readable: true}, destroyer(this));
+        const unend = eos(readable, {writable: false, readable: true}, (err) => {
+            if (err) this.destroy(err.message === 'premature close' ? null : err);
+            else if (!this._ended) this.end()
+        });
 
         const onreadable = () => {
-            this._forward()
+            this._forward();
         };
 
         const onend = () => {
@@ -187,12 +188,14 @@ export class MappingStream extends Duplex {
     _finish(cb) {
         this.emit('preend');
         onuncork(this, () => {
-            end(this._writable, () => {
+            const endFn = () => {
                 // haxx to not emit prefinish twice
                 if ((<any>this)._writableState.prefinished === false) (<any>this)._writableState.prefinished = true;
                 this.emit('prefinish');
-                onuncork(self, cb);
-            })
+                onuncork(this, cb);
+            };
+            if (this._writable._writableState.finished) return endFn();
+            return this._writable.end(endFn);
         })
     }
 
