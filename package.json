@@ -17,12 +17,14 @@
     "@google-cloud/speech": "^2.0.0",
     "async": "^2.1.2",
     "bluebird": "^3.5.0",
+    "end-of-stream": "^1.4.1",
     "fluent-ffmpeg": "^2.1.2",
     "highland": "^2.13.0",
     "lodash": "^4.17.4",
+    "node-vad": "git+https://github.com/snirpo/node-vad.git",
+    "stream-shift": "^1.0.0",
     "talisman": "^0.19.1",
-    "util-promisifyall": "^1.0.4",
-    "node-vad": "git+https://github.com/snirpo/node-vad.git"
+    "util-promisifyall": "^1.0.4"
   },
   "devDependencies": {
     "@types/lodash": "^4.14.63",
