@@ -1,15 +1,9 @@
-import * as Stream from "highland";
+import {SrtLine, SrtReader} from "./srt/srt";
 
-import {SrtBlock, SrtReader} from "./srt/srt";
-
-import * as VAD from "node-vad";
 import * as FFmpeg from 'fluent-ffmpeg';
 import * as speech from "@google-cloud/speech";
 import {Transform} from "stream";
-import {MappingStream} from "./mappingstream/mappingstream";
 import {Matcher} from "./matcher/matcher";
-
-VAD.prototype.processAudioStream = Stream.wrapCallback(VAD.prototype.processAudio);
 
 const inFile = process.argv[2];
 const srtFile = process.argv[3];
@@ -17,8 +11,6 @@ const srtFile = process.argv[3];
 const audioChannels = 1;
 const audioFrequency = 16000.0;
 const bitsPerSample = 16; // multiple of 8
-const timeMultiplier = (1000 / audioFrequency) / ((bitsPerSample / 8) * audioChannels);
-const decoderChunkSize = 12800;
 
 const speechConfig = {
     encoding: 'LINEAR16',
@@ -30,10 +22,10 @@ const speechConfig = {
 
 const seekTime = 600; // 10 minutes
 const seekTimeMs = seekTime * 1000;
-const duration = 15;
-const matchTreshold = 0.80;
+const duration = 60;
+const matchTreshold = 0.60;
 
-function getFFmpeg(inFile: string) {
+function createFFmpeg(inFile: string) {
     return FFmpeg(inFile)
         .seekInput(seekTime)
         .duration(duration)
@@ -42,11 +34,7 @@ function getFFmpeg(inFile: string) {
         .toFormat('s' + bitsPerSample.toString() + 'le');
 }
 
-SrtReader.readBlocks(srtFile)
-    .then(blocks => {
-        //blocks.forEach(b => console.log("block: " + b.text));
-        return blocks;
-    })
+SrtReader.readLines(srtFile)
     .then(lines => synchronize(inFile, lines))
     .then(line => {
         console.log(line);
@@ -54,123 +42,79 @@ SrtReader.readBlocks(srtFile)
         console.error(err);
     });
 
-function synchronize(inFile: string, lines: SrtBlock[]): Promise<{}> {
+function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
     return new Promise((resolve, reject) => {
-        const ffmpeg = getFFmpeg(inFile);
+        const ffmpeg = createFFmpeg(inFile);
 
-        const audioStream = ffmpeg.pipe();
-        //const writeStream = fs.createWriteStream("test.raw");
-
-        audioStream
-        //.through(recognizeStream)
-            .pipe(createTimestamper(seekTimeMs))
-            //.pipe(createSpeechFilter())
+        ffmpeg.pipe()
             .pipe(createRecognizer())
-            //.pipe(createMatcher(lines))
+            .pipe(createMatcher(lines, seekTimeMs))
             .on("error", console.log)
             .on("data", data => {
-                data.data = null;
-                console.log(JSON.stringify(data));
+                console.log(JSON.stringify(data, null, 2));
                 //console.log(data);
             });
-    });
-}
-
-function createTimestamper(seekTime: number) {
-    let byteCount = 0;
-    return new Transform({
-        objectMode: true,
-        transform: (chunk, encoding, callback) => {
-            const time = seekTime + (timeMultiplier * byteCount);
-            byteCount += chunk.length;
-            callback(null, {time: time, byteCount: byteCount, data: chunk});
-        }
     });
 }
 
 function createRecognizer() {
     const speechClient = new speech.SpeechClient();
 
-    return MappingStream.ofDuplex(speechClient.streamingRecognize({
+    return speechClient.streamingRecognize({
         config: speechConfig,
         //interimResults: true
-    }));
+    });
 }
 
-function createMatcher(lines: SrtBlock[]): Transform {
+function createMatcher(lines: SrtLine[], seekTime: number): Transform {
     let index = 0;
     let average = 0;
 
     return new Transform({
         objectMode: true,
         transform: (data: any, _, done) => {
-            const hyp = data.speech.results[0].alternatives[0].transcript;
-            //console.log(hyp);
+            const matches = [];
+
+            //console.log(data.results.length);
+            const alternatives = data.results[0].alternatives;
+            //console.log(data);
+            //for (let i = 0; i < alternatives.length; i++) {
+            const alternative = alternatives[0];
+            const transcript = alternative.transcript;
 
             for (let j = index; j < lines.length; j++) {
                 const line = lines[j];
-                //const distance = damerauLevenshtein(hyp.hypstr, line.text);
-                //const matchPercentage = 1 - (distance / Math.max(hyp.hypstr.length, line.text.length));
-                const matchPercentage = Matcher.calculateSentenceMatchPercentage(hyp, line.text);
-                //console.log(matchPercentage);
+                const matchPercentage = Matcher.calculateSentenceMatchPercentage(transcript, line.text);
 
                 if (matchPercentage > matchTreshold) {
-                    index = j;
-                    const timeDiff = Math.abs(line.startTime - data.startTime);
-                    average = average === 0 ? timeDiff : (average + timeDiff) / 2;
-                    done(null, "----Match:" + line.text + "\n----Hyp:" + hyp + "\n----timeDiff: " + timeDiff + "\n ----percentage: " + matchPercentage);
-                    return;
+                    const startTime = toMillis(alternative.words[0].startTime);
+                    const endTime = toMillis(alternative.words[alternative.words.length - 1].endTime);
+
+                    matches.push({
+                        index: j,
+                        line: line,
+                        hyp: {
+                            transcript: transcript,
+                            startTime: seekTime + startTime,
+                            endTime: seekTime + endTime
+                        },
+                        matchPercentage: matchPercentage
+                    });
                 }
             }
-            done(null, "No match found for: " + hyp);
+            //}
+
+            //console.log(JSON.stringify(matches, null, 2));
+            if (matches.length == 1) {
+                done(null, matches[0]);
+            }
+            else {
+                done();
+            }
         }
     })
 }
 
-function createSpeechFilter() {
-    const vad = new VAD(VAD.Mode.MODE_NORMAL);
-    let inSpeech = false;
-    let startTime = 0;
-
-    return new Transform({
-        objectMode: true,
-        transform: (chunk: any, encoding, callback) => {
-            vad.processAudio(chunk.data, audioFrequency, (err, event) => {
-                if (event === VAD.Event.EVENT_ERROR) {
-                    callback("Error in VAD");
-                }
-
-                if (event === VAD.Event.EVENT_VOICE) {
-                    if (!inSpeech) {
-                        startTime = chunk.time;
-                        inSpeech = true;
-                    }
-                }
-                else {
-                    inSpeech = false;
-                    startTime = 0;
-                }
-
-                if (inSpeech) {
-                    callback(null, {
-                        ...chunk,
-                        inSpeech: inSpeech,
-                        startTime: startTime
-                    });
-                }
-                else {
-                    callback();
-                }
-            });
-        }
-    });
+function toMillis(time) {
+    return (time.seconds * 1000) + (time.nanos / 1000000);
 }
-
-
-
-
-
-
-
-
-
