@@ -47,8 +47,8 @@ function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
         const ffmpeg = createFFmpeg(inFile);
 
         ffmpeg.pipe()
-            .pipe(createRecognizer())
-            .pipe(createMatcher(lines, seekTimeMs))
+            .pipe(createRecognizer(speechConfig))
+            .pipe(createMatcher(lines, seekTimeMs, matchTreshold))
             .on("error", console.log)
             .on("data", data => {
                 console.log(JSON.stringify(data, null, 2));
@@ -57,55 +57,47 @@ function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
     });
 }
 
-function createRecognizer() {
+function createRecognizer(config) {
     const speechClient = new speech.SpeechClient();
 
     return speechClient.streamingRecognize({
-        config: speechConfig,
-        //interimResults: true
+        config: config
     });
 }
 
-function createMatcher(lines: SrtLine[], seekTime: number): Transform {
-    let index = 0;
-    let average = 0;
-
+function createMatcher(lines: SrtLine[], seekTime: number, matchTreshold: number): Transform {
     return new Transform({
         objectMode: true,
         transform: (data: any, _, done) => {
-            const matches = [];
+            const matches = data.results.reduce((matches, result) => {
+                const alternative = result.alternatives[0]; // Always first and only for now
+                const transcript = alternative.transcript;
 
-            //console.log(data.results.length);
-            const alternatives = data.results[0].alternatives;
-            //console.log(data);
-            //for (let i = 0; i < alternatives.length; i++) {
-            const alternative = alternatives[0];
-            const transcript = alternative.transcript;
+                lines.forEach((line, index) => {
+                    const matchPercentage = Matcher.calculateSentenceMatchPercentage(transcript, line.text);
 
-            for (let j = index; j < lines.length; j++) {
-                const line = lines[j];
-                const matchPercentage = Matcher.calculateSentenceMatchPercentage(transcript, line.text);
+                    if (matchPercentage > matchTreshold) {
+                        const startTime = toMillis(alternative.words[0].startTime);
+                        const endTime = toMillis(alternative.words[alternative.words.length - 1].endTime);
 
-                if (matchPercentage > matchTreshold) {
-                    const startTime = toMillis(alternative.words[0].startTime);
-                    const endTime = toMillis(alternative.words[alternative.words.length - 1].endTime);
-
-                    matches.push({
-                        index: j,
-                        line: line,
-                        hyp: {
-                            transcript: transcript,
-                            startTime: seekTime + startTime,
-                            endTime: seekTime + endTime
-                        },
-                        matchPercentage: matchPercentage
-                    });
-                }
-            }
-            //}
+                        matches.push({
+                            index: index,
+                            line: line,
+                            hyp: {
+                                transcript: transcript,
+                                startTime: seekTime + startTime,
+                                endTime: seekTime + endTime
+                            },
+                            matchPercentage: matchPercentage
+                        });
+                    }
+                });
+                //return {index: index, line: line, matchPercentage: matchPercentage};
+                return matches;
+            }, []);
 
             //console.log(JSON.stringify(matches, null, 2));
-            if (matches.length == 1) {
+            if (matches.length === 1) {
                 done(null, matches[0]);
             }
             else {
