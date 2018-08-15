@@ -1,9 +1,11 @@
 import {SrtLine, SrtReader} from "./srt/srt";
 
+import * as VAD from "node-vad";
 import * as FFmpeg from 'fluent-ffmpeg';
 import * as speech from "@google-cloud/speech";
 import {Transform} from "stream";
 import {Matcher} from "./matcher/matcher";
+import {MappingStream} from "./mappingstream/mappingstream";
 
 const inFile = process.argv[2];
 const srtFile = process.argv[3];
@@ -11,6 +13,7 @@ const srtFile = process.argv[3];
 const audioChannels = 1;
 const audioFrequency = 16000.0;
 const bitsPerSample = 16; // multiple of 8
+const timeMultiplier = (1000 / audioFrequency) / ((bitsPerSample / 8) * audioChannels);
 
 const speechConfig = {
     encoding: 'LINEAR16',
@@ -24,6 +27,14 @@ const seekTime = 600; // 10 minutes
 const seekTimeMs = seekTime * 1000;
 const duration = 60;
 const matchTreshold = 0.60;
+
+interface Data {
+    audioData: Buffer,
+    inSpeech?: boolean,
+    time?: number,
+    speech?: any,
+    startTime: number
+}
 
 function createFFmpeg(inFile: string) {
     return FFmpeg(inFile)
@@ -47,22 +58,76 @@ function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
         const ffmpeg = createFFmpeg(inFile);
 
         ffmpeg.pipe()
+            .pipe(createTimestamper(seekTimeMs))
+            .pipe(createSpeechFilter())
             .pipe(createRecognizer(speechConfig))
-            .pipe(createMatcher(lines, seekTimeMs, matchTreshold))
+            //.pipe(createMatcher(lines, seekTimeMs, matchTreshold))
             .on("error", console.log)
             .on("data", data => {
+                data.audioData = null;
                 console.log(JSON.stringify(data, null, 2));
                 //console.log(data);
             });
     });
 }
 
+function createTimestamper(seekTime: number) {
+    let byteCount = 0;
+    return new Transform({
+        objectMode: true,
+        transform: (chunk, encoding, callback) => {
+            const time = seekTime + (timeMultiplier * byteCount);
+            byteCount += chunk.length;
+            callback(null, <Data>{time: time, audioData: chunk});
+        }
+    });
+}
+
+function createSpeechFilter() {
+    const vad = new VAD(VAD.Mode.MODE_NORMAL);
+    let inSpeech = false;
+    let startTime = 0;
+
+    return new Transform({
+        objectMode: true,
+        transform: (chunk: any, encoding, callback) => {
+            vad.processAudio(chunk.audioData, audioFrequency, (err, event) => {
+                if (event === VAD.Event.EVENT_ERROR) {
+                    callback("Error in VAD");
+                }
+
+                if (event === VAD.Event.EVENT_VOICE) {
+                    if (!inSpeech) {
+                        startTime = chunk.time;
+                        inSpeech = true;
+                    }
+                }
+                else {
+                    inSpeech = false;
+                    startTime = 0;
+                }
+
+                if (inSpeech) {
+                    callback(null, <Data>{
+                        ...chunk,
+                        inSpeech: inSpeech,
+                        startTime: startTime
+                    });
+                }
+                else {
+                    callback();
+                }
+            });
+        }
+    });
+}
+
 function createRecognizer(config) {
     const speechClient = new speech.SpeechClient();
 
-    return speechClient.streamingRecognize({
+    return MappingStream.obj(speechClient.streamingRecognize({
         config: config
-    });
+    }), (originalData: Data, data: any) => <any>{...originalData, speech: data}, (data: Data) => data.audioData);
 }
 
 function createMatcher(lines: SrtLine[], seekTime: number, matchTreshold: number): Transform {

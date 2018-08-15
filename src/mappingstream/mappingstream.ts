@@ -10,45 +10,42 @@ const onuncork = function (self, fn) {
     else fn()
 };
 
+export interface WriteMapper {
+    (data: any): any;
+}
+
+export interface ReadMapper {
+    (originalData: any, data: any): any;
+}
+
 export class MappingStream extends Duplex {
-    private _writable = null;
-    private _readable = null;
+    private _stream = null;
 
     private _corked = 1;// start corked
     private _ondrain = null;
     private _drained = false;
     private _forwarding = false;
-    private _unwrite = null;
-    private _unread = null;
     private _ended = false;
+
+    private _readMapper: ReadMapper = null;
+    private _writeMapper: WriteMapper = null;
 
     private destroyed = false;
 
-    private inputData = [];
+    private inputData = null;
 
-    constructor(writable, readable, opts: any = {}) {
+    private constructor(stream: Duplex, readMapper: ReadMapper, writeMapper: WriteMapper, opts: any = {}) {
         super(opts);
 
-        this.setWritable(writable);
-        this.setReadable(readable);
+        this._readMapper = readMapper;
+        this._writeMapper = writeMapper;
+        this._setStream(stream);
     }
 
-    static obj(writable, readable, opts: any = {}) {
+    static obj(stream: Duplex, readMapper: ReadMapper, writeMapper: WriteMapper, opts: any = {}) {
         opts.objectMode = true;
         opts.highWaterMark = 16;
-        return new MappingStream(writable, readable, opts)
-    }
-
-    static of(writable, readable, opts: any = {}) {
-        opts.objectMode = true;
-        opts.highWaterMark = 16;
-        return new MappingStream(writable, readable, opts);
-    }
-
-    static ofDuplex(stream, opts: any = {}) {
-        opts.objectMode = true;
-        opts.highWaterMark = 16;
-        return new MappingStream(stream, stream, opts);
+        return new MappingStream(stream, readMapper, writeMapper, opts);
     }
 
     cork() {
@@ -59,27 +56,13 @@ export class MappingStream extends Duplex {
         if (this._corked && --this._corked === 0) this.emit('uncork');
     }
 
-    private setWritable(writable) {
-        if (this._unwrite) this._unwrite();
-
+    private _setStream(stream) {
         if (this.destroyed) {
-            if (writable && writable.destroy) writable.destroy();
+            stream.destroy();
             return;
         }
 
-        if (writable === null || writable === false) {
-            this.end();
-            return;
-        }
-
-        const unend = eos(writable, {writable: true, readable: false}, (err) => {
-            if (err) {
-                this.destroy(err.message === 'premature close' ? null : err);
-            }
-            else if (!this._ended) {
-                this.end()
-            }
-        });
+        this._stream = stream;
 
         const ondrain = () => {
             const ondrain = this._ondrain;
@@ -87,42 +70,7 @@ export class MappingStream extends Duplex {
             if (ondrain) ondrain();
         };
 
-        const clear = () => {
-            this._writable.removeListener('drain', ondrain);
-            unend()
-        };
-
-        if (this._unwrite) process.nextTick(ondrain); // force a drain on stream reset to avoid livelocks
-
-        this._writable = writable;
-        this._writable.on('drain', ondrain);
-        this._unwrite = clear;
-
-        this.uncork() // always uncork setWritable
-    }
-
-    private setReadable(readable) {
-        if (this._unread) this._unread();
-
-        if (this.destroyed) {
-            if (readable && readable.destroy) readable.destroy();
-            return
-        }
-
-        if (!readable) {
-            this.push(null);
-            this.resume();
-            return;
-        }
-
-        const unend = eos(readable, {writable: false, readable: true}, (err) => {
-            if (err) {
-                this.destroy(err.message === 'premature close' ? null : err)
-            }
-            else if (!this._ended) {
-                this.end()
-            }
-        });
+        this._stream.on('drain', ondrain);
 
         const onreadable = () => {
             this._forward();
@@ -132,19 +80,13 @@ export class MappingStream extends Duplex {
             this.push(null);
         };
 
-        const clear = () => {
-            this._readable.removeListener('readable', onreadable);
-            this._readable.removeListener('end', onend);
-            unend();
-        };
-
         this._drained = true;
-        this._readable = readable;
-        this._readable.on('readable', onreadable);
-        this._readable.on('end', onend);
-        this._unread = clear;
+        this._stream.on('readable', onreadable);
+        this._stream.on('end', onend);
 
         this._forward();
+
+        this.uncork() // always uncork setWritable
     }
 
     _read() {
@@ -158,12 +100,9 @@ export class MappingStream extends Duplex {
 
         let data;
 
-        while (this._drained && (data = shift(this._readable)) !== null) {
+        while (this._drained && (data = shift(this._stream)) !== null) {
             if (this.destroyed) continue;
-            this._drained = this.push({
-                ...this.inputData.shift(),
-                speech: data
-            })
+            this._drained = this.push(this._readMapper(this.inputData, data));
         }
 
         this._forwarding = false
@@ -186,8 +125,7 @@ export class MappingStream extends Duplex {
             else this.emit('error', err);
         }
 
-        this._readable.destroy();
-        this._writable.destroy();
+        this._stream.destroy();
 
         this.emit('close');
     }
@@ -197,8 +135,8 @@ export class MappingStream extends Duplex {
         if (this._corked) return onuncork(this, this._write.bind(this, data, enc, cb));
         if (data === SIGNAL_FLUSH) return this._finish(cb);
 
-        this.inputData.push(data);
-        if (this._writable.write(data.data, enc) === false) {
+        this.inputData = data;
+        if (this._stream.write(this._writeMapper(data), enc) === false) {
             this._ondrain = cb;
         }
         else {
@@ -215,8 +153,8 @@ export class MappingStream extends Duplex {
                 this.emit('prefinish');
                 onuncork(this, cb);
             };
-            if (this._writable._writableState.finished) return endFn();
-            return this._writable.end(endFn);
+            if (this._stream._writableState.finished) return endFn();
+            return this._stream.end(endFn);
         })
     }
 
