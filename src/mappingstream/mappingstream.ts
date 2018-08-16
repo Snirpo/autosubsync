@@ -10,15 +10,7 @@ const onuncork = function (self, fn) {
     else fn()
 };
 
-export interface WriteMapper {
-    (data: any): any;
-}
-
-export interface ReadMapper {
-    (originalData: any, data: any): any;
-}
-
-export class MappingStream extends Duplex {
+export abstract class MappingStream extends Duplex {
     private _stream = null;
 
     private _corked = 1;// start corked
@@ -27,25 +19,12 @@ export class MappingStream extends Duplex {
     private _forwarding = false;
     private _ended = false;
 
-    private _readMapper: ReadMapper = null;
-    private _writeMapper: WriteMapper = null;
-
     private destroyed = false;
 
-    private inputData = null;
-
-    private constructor(stream: Duplex, readMapper: ReadMapper, writeMapper: WriteMapper, opts: any = {}) {
+    protected constructor(stream: Duplex, opts: any = {}) {
         super(opts);
 
-        this._readMapper = readMapper;
-        this._writeMapper = writeMapper;
         this._setStream(stream);
-    }
-
-    static obj(stream: Duplex, readMapper: ReadMapper, writeMapper: WriteMapper, opts: any = {}) {
-        opts.objectMode = true;
-        opts.highWaterMark = 16;
-        return new MappingStream(stream, readMapper, writeMapper, opts);
     }
 
     cork() {
@@ -102,11 +81,16 @@ export class MappingStream extends Duplex {
 
         while (this._drained && (data = shift(this._stream)) !== null) {
             if (this.destroyed) continue;
-            this._drained = this.push(this._readMapper(this.inputData, data));
+            const mappedData = this._mapRead(data);
+            if (mappedData) {
+                this._drained = this.push(mappedData);
+            }
         }
 
         this._forwarding = false
     }
+
+    abstract _mapRead(data);
 
     destroy(err) {
         if (this.destroyed) return;
@@ -121,8 +105,12 @@ export class MappingStream extends Duplex {
         if (err) {
             const ondrain = this._ondrain;
             this._ondrain = null;
-            if (ondrain) ondrain(err);
-            else this.emit('error', err);
+            if (ondrain) {
+                ondrain(err)
+            }
+            else {
+                this.emit('error', err);
+            }
         }
 
         this._stream.destroy();
@@ -135,14 +123,21 @@ export class MappingStream extends Duplex {
         if (this._corked) return onuncork(this, this._write.bind(this, data, enc, cb));
         if (data === SIGNAL_FLUSH) return this._finish(cb);
 
-        this.inputData = data;
-        if (this._stream.write(this._writeMapper(data), enc) === false) {
+        const mappedData = this._mapWrite(data);
+
+        if (!mappedData) {
+            return cb();
+        }
+
+        if (this._stream.write(mappedData, enc) === false) {
             this._ondrain = cb;
         }
         else {
             cb()
         }
     }
+
+    abstract _mapWrite(data);
 
     _finish(cb) {
         this.emit('preend');
