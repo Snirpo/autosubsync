@@ -3,7 +3,7 @@ import {SrtLine, SrtReader} from "./srt/srt";
 import * as VAD from "node-vad";
 import * as FFmpeg from 'fluent-ffmpeg';
 import * as speech from "@google-cloud/speech";
-import {Transform} from "stream";
+import {Duplex, Transform} from "stream";
 import {Matcher} from "./matcher/matcher";
 import {MappingStream} from "./mappingstream/mappingstream";
 
@@ -85,38 +85,19 @@ function createTimestamper(seekTime: number) {
 
 function createSpeechFilter() {
     const vad = new VAD(VAD.Mode.MODE_NORMAL);
-    let inSpeech = false;
-    let startTime = 0;
 
     return new Transform({
         objectMode: true,
         transform: (chunk: any, encoding, callback) => {
             vad.processAudio(chunk.audioData, audioFrequency, (err, event) => {
                 if (event === VAD.Event.EVENT_ERROR) {
-                    callback("Error in VAD");
+                    return callback("Error in VAD");
                 }
 
-                if (event === VAD.Event.EVENT_VOICE) {
-                    if (!inSpeech) {
-                        startTime = chunk.time;
-                        inSpeech = true;
-                    }
-                }
-                else {
-                    inSpeech = false;
-                    startTime = 0;
-                }
-
-                if (inSpeech) {
-                    callback(null, <Data>{
-                        ...chunk,
-                        inSpeech: inSpeech,
-                        startTime: startTime
-                    });
-                }
-                else {
-                    callback();
-                }
+                callback(null, <Data>{
+                    ...chunk,
+                    inSpeech: event === VAD.Event.EVENT_VOICE,
+                });
             });
         }
     });
@@ -124,10 +105,44 @@ function createSpeechFilter() {
 
 function createRecognizer(config) {
     const speechClient = new speech.SpeechClient();
-
-    return MappingStream.obj(speechClient.streamingRecognize({
+    return new SpeechStream(speechClient.streamingRecognize({
         config: config
-    }), (originalData: Data, data: any) => <any>{...originalData, speech: data}, (data: Data) => data.audioData);
+    }));
+}
+
+class SpeechStream extends MappingStream {
+    private currentSegment = null;
+    private segments = [];
+    private speechClient = new speech.SpeechClient();
+
+    constructor(stream: Duplex) {
+        super(stream, {objectMode: true});
+    }
+
+    _mapRead(data) {
+        const segment = this.segments.shift();
+        return {
+            ...segment,
+            speech: data
+        }
+    }
+
+    _mapWrite(data) {
+        if (data.inSpeech) {
+            if (!this.currentSegment) {
+                this.currentSegment = {
+                    startTime: data.time
+                };
+                this.segments.push(this.currentSegment);
+            }
+        }
+        else if (this.currentSegment) {
+            this.currentSegment.endTime = data.time;
+            this.currentSegment = null;
+        }
+        return data.audioData;
+    }
+
 }
 
 function createMatcher(lines: SrtLine[], seekTime: number, matchTreshold: number): Transform {
