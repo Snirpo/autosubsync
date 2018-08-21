@@ -87,7 +87,7 @@ class FlatMapStream extends Duplex {
     private _forwardRead(stream: Readable) {
         let data;
         while ((data = stream.read()) !== null) {
-            this.push(data);
+            if (!this.push(data)) return;
         }
     }
 
