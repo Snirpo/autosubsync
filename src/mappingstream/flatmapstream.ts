@@ -1,4 +1,5 @@
 import {Duplex, Readable} from "stream";
+import * as eos from "end-of-stream";
 
 export interface StreamSelector {
     (data: any): Duplex;
@@ -6,7 +7,7 @@ export interface StreamSelector {
 
 class FlatMapStream extends Duplex {
     private _ondrain;
-    private streams: { stream: Duplex, cleaner: () => void }[] = [];
+    private streams: { stream: Duplex, removeListeners: () => void }[] = [];
 
     constructor(private streamSelector: StreamSelector, options) {
         super(options);
@@ -18,7 +19,7 @@ class FlatMapStream extends Duplex {
             this._addStream(stream);
         }
 
-        if (stream.write(data, enc) === false) {
+        if (!stream.write(data, enc)) {
             this._ondrain = cb;
             return;
         }
@@ -27,20 +28,17 @@ class FlatMapStream extends Duplex {
     }
 
     private _addStream(stream: Duplex) {
+        const endListener = eos(stream, err => {
+            if (err) {
+                this.destroy(err);
+            }
+            else {
+                this._removeStream(stream);
+            }
+        });
+
         const readableListener = () => this._forwardRead(stream);
         stream.on('readable', readableListener);
-
-        const endListener = () => {
-            const index = this.streams.findIndex(s => s.stream === stream);
-            if (index > -1) {
-                this.streams[index].cleaner();
-                this.streams.splice(index, 1);
-            }
-            if (this.streams.length === 0) {
-                this.push(null); // Stream end
-            }
-        };
-        stream.on('end', endListener);
 
         const drainListener = () => {
             const ondrain = this._ondrain;
@@ -49,32 +47,23 @@ class FlatMapStream extends Duplex {
         };
         stream.on('drain', drainListener);
 
-        const errorListener = err => this._throwError(err);
-        stream.on('error', errorListener);
-
         this.streams.push({
-            stream: stream, cleaner: () => {
+            stream: stream, removeListeners: () => {
                 stream.removeListener('readable', readableListener);
-                stream.removeListener('end', endListener);
                 stream.removeListener('drain', drainListener);
-                stream.removeListener('error', errorListener);
+                endListener();
             }
         });
     }
 
-    _throwError(err) {
-        for (let stream of this.streams) {
-            stream.cleaner();
+    private _removeStream(stream: Duplex) {
+        const index = this.streams.findIndex(s => s.stream === stream);
+        if (index > -1) {
+            this.streams[index].removeListeners();
+            this.streams.splice(index, 1);
         }
-        this.streams = [];
-
-        const ondrain = this._ondrain;
-        this._ondrain = null;
-        if (ondrain) {
-            ondrain(err)
-        }
-        else {
-            this.emit('error', err);
+        if (this.streams.length === 0) {
+            this.end();
         }
     }
 
@@ -93,20 +82,29 @@ class FlatMapStream extends Duplex {
 
     _final(cb) {
         for (let stream of this.streams) {
-            stream.cleaner();
+            stream.removeListeners();
             stream.stream.end();
         }
         this.streams = [];
+
         cb();
     }
 
     _destroy(err, cb) {
         for (let stream of this.streams) {
-            stream.cleaner();
+            stream.removeListeners();
             stream.stream.destroy(err);
         }
         this.streams = [];
-        this.push(null);
-        cb(err);
+
+        const ondrain = this._ondrain;
+        this._ondrain = null;
+        if (ondrain) {
+            ondrain(err);
+            cb();
+        }
+        else {
+            cb(err);
+        }
     }
 }
