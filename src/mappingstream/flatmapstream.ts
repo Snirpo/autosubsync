@@ -1,25 +1,40 @@
-import {Duplex, Readable} from "stream";
+import {Duplex, DuplexOptions} from "stream";
 import * as eos from "end-of-stream";
 
-export interface StreamSelector {
-    (data: any): Duplex;
+export interface StreamConfig {
+    stream: Duplex;
+    readMapper: (data: any) => any;
+    writeMapper: (data: any) => any;
 }
 
-class FlatMapStream extends Duplex {
-    private _ondrain;
-    private streams: { stream: Duplex, removeListeners: () => void }[] = [];
+export interface StreamSelector {
+    (data: any): StreamConfig;
+}
 
-    constructor(private streamSelector: StreamSelector, options) {
+export class FlatMapStream extends Duplex {
+    private _ondrain;
+    private streamContextArray: { config: StreamConfig, removeListeners: () => void }[] = [];
+
+    constructor(private streamSelector: StreamSelector,
+                options: DuplexOptions = {}) {
         super(options);
     }
 
+    public static obj(streamSelector: StreamSelector,
+                      options: DuplexOptions = {}) {
+        options.objectMode = true;
+        return new FlatMapStream(streamSelector, options);
+    }
+
     _write(data, enc, cb) {
-        const stream = this.streamSelector(data);
-        if (this.streams.findIndex(s => s.stream === stream) === -1) {
-            this._addStream(stream);
+        const config = this.streamSelector(data);
+        if (this.streamContextArray.findIndex(s => s.config === config) === -1) {
+            this._addStream(config);
         }
 
-        if (!stream.write(data, enc)) {
+        data = config.writeMapper(data);
+        //console.log("BLA");
+        if (!config.stream.write(data, enc)) {
             this._ondrain = cb;
             return;
         }
@@ -27,75 +42,81 @@ class FlatMapStream extends Duplex {
         cb();
     }
 
-    private _addStream(stream: Duplex) {
-        const endListener = eos(stream, err => {
+    private _addStream(config: StreamConfig) {
+        console.log("add");
+        const endListener = eos(config.stream, err => {
+            console.log("end");
             if (err) {
                 this.destroy(err);
             }
             else {
-                this._removeStream(stream);
+                this._removeStream(config);
             }
         });
 
-        const readableListener = () => this._forwardRead(stream);
-        stream.on('readable', readableListener);
+        const readableListener = () => this._forwardRead(config);
+        config.stream.on('readable', readableListener);
 
         const drainListener = () => {
             const ondrain = this._ondrain;
             this._ondrain = null;
             if (ondrain) ondrain();
         };
-        stream.on('drain', drainListener);
+        config.stream.on('drain', drainListener);
 
-        this.streams.push({
-            stream: stream, removeListeners: () => {
-                stream.removeListener('readable', readableListener);
-                stream.removeListener('drain', drainListener);
+        this.streamContextArray.push({
+            config: config,
+            removeListeners: () => {
+                console.log("remove listeners");
+                config.stream.removeListener('readable', readableListener);
+                config.stream.removeListener('drain', drainListener);
                 endListener();
             }
         });
     }
 
-    private _removeStream(stream: Duplex) {
-        const index = this.streams.findIndex(s => s.stream === stream);
+    private _removeStream(config: StreamConfig) {
+        console.log("remove");
+        const index = this.streamContextArray.findIndex(s => s.config === config);
         if (index > -1) {
-            this.streams[index].removeListeners();
-            this.streams.splice(index, 1);
+            this.streamContextArray[index].removeListeners();
+            this.streamContextArray.splice(index, 1);
         }
-        if (this.streams.length === 0) {
+        if (this.streamContextArray.length === 0) {
+            this.push(null);
             this.end();
         }
     }
 
     _read(size) {
-        for (let stream of this.streams) {
-            this._forwardRead(stream.stream);
+        for (let context of this.streamContextArray) {
+            this._forwardRead(context.config);
         }
     }
 
-    private _forwardRead(stream: Readable) {
+    private _forwardRead(config: StreamConfig) {
         let data;
-        while ((data = stream.read()) !== null) {
-            if (!this.push(data)) return;
+        while ((data = config.stream.read()) !== null) {
+            if (!this.push(config.readMapper(data))) return;
         }
     }
 
     _final(cb) {
-        for (let stream of this.streams) {
-            stream.removeListeners();
-            stream.stream.end();
+        for (let context of this.streamContextArray) {
+            context.removeListeners();
+            context.config.stream.end();
         }
-        this.streams = [];
+        this.streamContextArray = [];
 
         cb();
     }
 
     _destroy(err, cb) {
-        for (let stream of this.streams) {
-            stream.removeListeners();
-            stream.stream.destroy(err);
+        for (let context of this.streamContextArray) {
+            context.removeListeners();
+            context.config.stream.destroy(err);
         }
-        this.streams = [];
+        this.streamContextArray = [];
 
         const ondrain = this._ondrain;
         this._ondrain = null;
