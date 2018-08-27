@@ -3,7 +3,7 @@ import {SrtLine, SrtReader} from "./srt/srt";
 import * as VAD from "node-vad";
 import * as FFmpeg from 'fluent-ffmpeg';
 import * as speech from "@google-cloud/speech";
-import {Transform} from "stream";
+import {PassThrough, Transform} from "stream";
 import {Matcher} from "./matcher/matcher";
 import {FlatMapStream, StreamConfig} from "./mappingstream/flatmapstream";
 
@@ -59,22 +59,44 @@ function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
 
         ffmpeg.pipe()
             .pipe(createTimestamper(seekTimeMs))
+            //.pipe(simpleRecognize(speechConfig))
             .pipe(createSpeechFilter())
             .pipe(createRecognizer(speechConfig))
             //.pipe(createMatcher(lines, seekTimeMs, matchTreshold))
             .on("error", console.log)
             .on("data", data => {
                 data.audioData = null;
-                console.log(JSON.stringify(data, null, 2));
+                //console.log(JSON.stringify(data, null, 2));
                 //console.log(data);
             });
     });
 }
 
+// function simpleRecognize(speechConfig) {
+//     const speechClient = new speech.SpeechClient();
+//     return new SpeechStream(speechClient.streamingRecognize({config: speechConfig}));
+// }
+//
+// class SpeechStream extends MappingStream {
+//     constructor(stream: Duplex) {
+//         super(stream, {objectMode: true});
+//     }
+//
+//     _mapRead(data) {
+//         return data;
+//     }
+//
+//     _mapWrite(data) {
+//         return data.audioData;
+//     }
+//
+// }
+
 function createTimestamper(seekTime: number) {
     let byteCount = 0;
     return new Transform({
-        objectMode: true,
+        writableObjectMode: false,
+        readableObjectMode: true,
         transform: (chunk, encoding, callback) => {
             const time = seekTime + (timeMultiplier * byteCount);
             byteCount += chunk.length;
@@ -87,32 +109,40 @@ function createSpeechFilter() {
     const vad = new VAD(VAD.Mode.MODE_NORMAL);
     let inSpeech = false;
     let startTime = 0;
+    let counter = 0;
 
     return new Transform({
         objectMode: true,
         transform: (chunk: any, encoding, callback) => {
+            if (inSpeech && (chunk.time - startTime <= 50000)) {
+                return callback(null, <Data>{
+                    ...chunk,
+                    start: false,
+                    startTime: startTime
+                })
+            }
+            console.log(++counter);
+
             vad.processAudio(chunk.audioData, audioFrequency, (err, event) => {
                 if (event === VAD.Event.EVENT_ERROR) {
                     return callback("Error in VAD");
                 }
 
                 if (event === VAD.Event.EVENT_VOICE) {
-                    let start = false;
-                    if (!inSpeech) {
-                        start = true;
-                        inSpeech = true;
-                        startTime = chunk.time;
-                    }
+                    // Speech
+                    console.log("event");
+                    inSpeech = true;
+                    startTime = chunk.time;
                     callback(null, <Data>{
                         ...chunk,
-                        start: start,
+                        start: true,
                         startTime: startTime
                     });
                 }
                 else {
-                    if (chunk.time - startTime > 60000) {
-                        inSpeech = false;
-                    }
+                    console.log("NO SPEECH");
+                    // No speech
+                    inSpeech = false;
                     callback();
                 }
             });
@@ -126,11 +156,10 @@ function createRecognizer(speechConfig) {
 
     return FlatMapStream.obj(data => {
         if (data.start) {
-            console.log("new stream");
             const startTime = data.startTime;
             currentStream = <StreamConfig>{
-                stream: speechClient.streamingRecognize({config: speechConfig}),
-                //stream: new PassThrough(),
+                //stream: speechClient.streamingRecognize({config: speechConfig}),
+                stream: new PassThrough(),
                 readMapper: data => <any>{
                     startTime: startTime,
                     speech: data

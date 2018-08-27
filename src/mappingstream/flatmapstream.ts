@@ -33,7 +33,6 @@ export class FlatMapStream extends Duplex {
         }
 
         data = config.writeMapper(data);
-        //console.log("BLA");
         if (!config.stream.write(data, enc)) {
             this._ondrain = cb;
             return;
@@ -43,9 +42,8 @@ export class FlatMapStream extends Duplex {
     }
 
     private _addStream(config: StreamConfig) {
-        console.log("add");
+        console.log("NEW STREAM");
         const endListener = eos(config.stream, err => {
-            console.log("end");
             if (err) {
                 this.destroy(err);
             }
@@ -67,7 +65,6 @@ export class FlatMapStream extends Duplex {
         this.streamContextArray.push({
             config: config,
             removeListeners: () => {
-                console.log("remove listeners");
                 config.stream.removeListener('readable', readableListener);
                 config.stream.removeListener('drain', drainListener);
                 endListener();
@@ -76,16 +73,16 @@ export class FlatMapStream extends Duplex {
     }
 
     private _removeStream(config: StreamConfig) {
-        console.log("remove");
+        console.log("REMOVE STREAM");
         const index = this.streamContextArray.findIndex(s => s.config === config);
         if (index > -1) {
             this.streamContextArray[index].removeListeners();
             this.streamContextArray.splice(index, 1);
         }
-        if (this.streamContextArray.length === 0) {
-            this.push(null);
-            this.end();
-        }
+        // if (this.streamContextArray.length === 0) {
+        //     this.push(null);
+        //     this.end();
+        // }
     }
 
     _read(size) {
@@ -102,16 +99,23 @@ export class FlatMapStream extends Duplex {
     }
 
     _final(cb) {
+        console.log("FINAL STREAM");
+        let streamCount = this.streamContextArray.length;
+        const countingCallback = () => {
+            if (--streamCount === 0) {
+                cb();
+            }
+        };
+
         for (let context of this.streamContextArray) {
             context.removeListeners();
-            context.config.stream.end();
+            context.config.stream.end(countingCallback);
         }
         this.streamContextArray = [];
-
-        cb();
     }
 
     _destroy(err, cb) {
+        console.log("DESTROY STREAM");
         for (let context of this.streamContextArray) {
             context.removeListeners();
             context.config.stream.destroy(err);
