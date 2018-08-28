@@ -33,7 +33,7 @@ export class FlatMapStream extends Duplex {
         }
 
         data = config.writeMapper(data);
-        if (!config.stream.write(data, enc)) {
+        if (!config.stream.write(data)) {
             this._ondrain = cb;
             return;
         }
@@ -42,7 +42,6 @@ export class FlatMapStream extends Duplex {
     }
 
     private _addStream(config: StreamConfig) {
-        console.log("NEW STREAM");
         const endListener = eos(config.stream, err => {
             if (err) {
                 this.destroy(err);
@@ -70,6 +69,8 @@ export class FlatMapStream extends Duplex {
                 endListener();
             }
         });
+
+        console.log("NEW STREAM " + this.streamContextArray.length);
     }
 
     private _removeStream(config: StreamConfig) {

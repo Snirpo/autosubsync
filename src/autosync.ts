@@ -109,42 +109,45 @@ function createSpeechFilter() {
     const vad = new VAD(VAD.Mode.MODE_NORMAL);
     let inSpeech = false;
     let startTime = 0;
-    let counter = 0;
+    let lastSpeech = 0;
 
     return new Transform({
         objectMode: true,
         transform: (chunk: any, encoding, callback) => {
-            if (inSpeech && (chunk.time - startTime <= 50000)) {
-                return callback(null, <Data>{
-                    ...chunk,
-                    start: false,
-                    startTime: startTime
-                })
-            }
-            console.log(++counter);
-
             vad.processAudio(chunk.audioData, audioFrequency, (err, event) => {
                 if (event === VAD.Event.EVENT_ERROR) {
                     return callback("Error in VAD");
                 }
 
+                let start = false;
+
+                if (inSpeech && (chunk.time - lastSpeech > 60000)) {
+                    inSpeech = false;
+                }
+
                 if (event === VAD.Event.EVENT_VOICE) {
                     // Speech
-                    console.log("event");
-                    inSpeech = true;
-                    startTime = chunk.time;
-                    callback(null, <Data>{
-                        ...chunk,
-                        start: true,
+                    if (!inSpeech) {
+                        inSpeech = true;
+                        startTime = chunk.time;
+                        start = true;
+                    }
+
+                    lastSpeech = chunk.time;
+                }
+
+                if (inSpeech) {
+                    return callback(null, <Data>{
+                        time: chunk.time,
+                        audioData: chunk.audioData,
+                        start: start,
                         startTime: startTime
                     });
                 }
-                else {
-                    console.log("NO SPEECH");
-                    // No speech
-                    inSpeech = false;
-                    callback();
-                }
+
+                //if ((chunk.time - lastSpeech > 1000))
+                console.log("NO SPEECH FOR: " + (chunk.time - lastSpeech));
+                return callback();
             });
         }
     });
