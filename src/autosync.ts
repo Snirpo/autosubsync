@@ -66,7 +66,7 @@ function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
             .on("error", console.log)
             .on("data", data => {
                 data.audioData = null;
-                //console.log(JSON.stringify(data, null, 2));
+                console.log(JSON.stringify(data, null, 2));
                 //console.log(data);
             });
     });
@@ -121,7 +121,7 @@ function createSpeechFilter() {
 
                 let start = false;
 
-                if (inSpeech && (chunk.time - lastSpeech > 60000)) {
+                if (inSpeech && (chunk.time - lastSpeech > 1000)) {
                     inSpeech = false;
                 }
 
@@ -143,10 +143,11 @@ function createSpeechFilter() {
                         start: start,
                         startTime: startTime
                     });
+                    //return callback(null, chunk.audioData)
                 }
 
                 //if ((chunk.time - lastSpeech > 1000))
-                console.log("NO SPEECH FOR: " + (chunk.time - lastSpeech));
+                //console.log("NO SPEECH FOR: " + (chunk.time - lastSpeech));
                 return callback();
             });
         }
@@ -157,12 +158,14 @@ function createRecognizer(speechConfig) {
     const speechClient = new speech.SpeechClient();
     let currentStream: StreamConfig = null;
 
+    //return speechClient.streamingRecognize({config: speechConfig});
+
     return FlatMapStream.obj(data => {
         if (data.start) {
             const startTime = data.startTime;
             currentStream = <StreamConfig>{
-                //stream: speechClient.streamingRecognize({config: speechConfig}),
-                stream: new PassThrough(),
+                stream: speechClient.streamingRecognize({config: speechConfig}),
+                //stream: new PassThrough(),
                 readMapper: data => <any>{
                     startTime: startTime,
                     speech: data

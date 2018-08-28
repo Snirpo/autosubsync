@@ -109,7 +109,6 @@ export class FlatMapStream extends Duplex {
         };
 
         for (let context of this.streamContextArray) {
-            context.removeListeners();
             context.config.stream.end(countingCallback);
         }
         this.streamContextArray = [];
@@ -118,7 +117,7 @@ export class FlatMapStream extends Duplex {
     _destroy(err, cb) {
         console.log("DESTROY STREAM");
         for (let context of this.streamContextArray) {
-            context.removeListeners();
+            //context.removeListeners();
             context.config.stream.destroy(err);
         }
         this.streamContextArray = [];
