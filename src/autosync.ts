@@ -3,7 +3,7 @@ import {SrtLine, SrtReader} from "./srt/srt";
 import * as VAD from "node-vad";
 import * as FFmpeg from 'fluent-ffmpeg';
 import * as speech from "@google-cloud/speech";
-import {PassThrough, Transform} from "stream";
+import {Transform} from "stream";
 import {Matcher} from "./matcher/matcher";
 import {FlatMapStream, StreamConfig} from "./mappingstream/flatmapstream";
 
@@ -58,7 +58,6 @@ function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
         const ffmpeg = createFFmpeg(inFile);
 
         ffmpeg.pipe()
-            .pipe(createTimestamper(seekTimeMs))
             //.pipe(simpleRecognize(speechConfig))
             .pipe(createSpeechFilter())
             .pipe(createRecognizer(speechConfig))
@@ -72,85 +71,12 @@ function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
     });
 }
 
-// function simpleRecognize(speechConfig) {
-//     const speechClient = new speech.SpeechClient();
-//     return new SpeechStream(speechClient.streamingRecognize({config: speechConfig}));
-// }
-//
-// class SpeechStream extends MappingStream {
-//     constructor(stream: Duplex) {
-//         super(stream, {objectMode: true});
-//     }
-//
-//     _mapRead(data) {
-//         return data;
-//     }
-//
-//     _mapWrite(data) {
-//         return data.audioData;
-//     }
-//
-// }
-
-function createTimestamper(seekTime: number) {
-    let byteCount = 0;
-    return new Transform({
-        writableObjectMode: false,
-        readableObjectMode: true,
-        transform: (chunk, encoding, callback) => {
-            const time = seekTime + (timeMultiplier * byteCount);
-            byteCount += chunk.length;
-            callback(null, <Data>{time: time, audioData: chunk});
-        }
-    });
-}
 
 function createSpeechFilter() {
     const vad = new VAD(VAD.Mode.MODE_NORMAL);
-    let inSpeech = false;
-    let startTime = 0;
-    let lastSpeech = 0;
-
-    return new Transform({
-        objectMode: true,
-        transform: (chunk: any, encoding, callback) => {
-            vad.processAudio(chunk.audioData, audioFrequency, (err, event) => {
-                if (event === VAD.Event.EVENT_ERROR) {
-                    return callback("Error in VAD");
-                }
-
-                let start = false;
-
-                if (inSpeech && (chunk.time - lastSpeech > 1000)) {
-                    inSpeech = false;
-                }
-
-                if (event === VAD.Event.EVENT_VOICE) {
-                    // Speech
-                    if (!inSpeech) {
-                        inSpeech = true;
-                        startTime = chunk.time;
-                        start = true;
-                    }
-
-                    lastSpeech = chunk.time;
-                }
-
-                if (inSpeech) {
-                    return callback(null, <Data>{
-                        time: chunk.time,
-                        audioData: chunk.audioData,
-                        start: start,
-                        startTime: startTime
-                    });
-                    //return callback(null, chunk.audioData)
-                }
-
-                //if ((chunk.time - lastSpeech > 1000))
-                //console.log("NO SPEECH FOR: " + (chunk.time - lastSpeech));
-                return callback();
-            });
-        }
+    return vad.createStream({
+        audioFrequency: audioFrequency,
+        debounceTime: 1000
     });
 }
 
@@ -161,8 +87,8 @@ function createRecognizer(speechConfig) {
     //return speechClient.streamingRecognize({config: speechConfig});
 
     return FlatMapStream.obj(data => {
-        if (data.start) {
-            const startTime = data.startTime;
+        if (data.speech.start) {
+            const startTime = data.speech.startTime;
             currentStream = <StreamConfig>{
                 stream: speechClient.streamingRecognize({config: speechConfig}),
                 //stream: new PassThrough(),
