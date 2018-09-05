@@ -1,11 +1,13 @@
 import {SrtLine, SrtReader} from "./srt/srt";
 
 import * as VAD from "node-vad";
-import * as FFmpeg from 'fluent-ffmpeg';
-import * as speech from "@google-cloud/speech";
+
+
 import {Transform} from "stream";
 import {Matcher} from "./matcher/matcher";
-import {FlatMapStream, StreamConfig} from "./mappingstream/flatmapstream";
+import {FlatMapStream, StreamConfig} from "./streams/flatmapstream";
+import {FFMPEGStream} from "./streams/ffmpeg-stream";
+import {RecognizerStream} from "./streams/recognizer-stream";
 
 const inFile = process.argv[2];
 const srtFile = process.argv[3];
@@ -36,15 +38,6 @@ interface Data {
     startTime: number
 }
 
-function createFFmpeg(inFile: string) {
-    return FFmpeg(inFile)
-        .seekInput(seekTime)
-        .duration(duration)
-        .withAudioChannels(audioChannels)
-        .withAudioFrequency(audioFrequency)
-        .toFormat('s' + bitsPerSample.toString() + 'le');
-}
-
 SrtReader.readLines(srtFile)
     .then(lines => synchronize(inFile, lines))
     .then(line => {
@@ -55,54 +48,30 @@ SrtReader.readLines(srtFile)
 
 function synchronize(inFile: string, lines: SrtLine[]): Promise<{}> {
     return new Promise((resolve, reject) => {
-        const ffmpeg = createFFmpeg(inFile);
+        const vad = new VAD(VAD.Mode.MODE_NORMAL);
 
-        ffmpeg.pipe()
-            //.pipe(simpleRecognize(speechConfig))
-            .pipe(createSpeechFilter())
-            .pipe(createRecognizer(speechConfig))
-            //.pipe(createMatcher(lines, seekTimeMs, matchTreshold))
-            .on("error", console.log)
-            .on("data", data => {
-                data.audioData = null;
-                console.log(JSON.stringify(data, null, 2));
-                //console.log(data);
-            });
-    });
-}
+        FFMPEGStream.create(inFile, {
+            bitsPerSample: 16,
+            audioFrequency: audioFrequency,
+            seekTime: seekTime,
+            duration: duration
+        })
+            .pipe(vad.createStream({
+                audioFrequency: audioFrequency,
+                debounceTime: 1000
+            }))
+            .pipe(RecognizerStream.create(speechConfig))
 
-
-function createSpeechFilter() {
-    const vad = new VAD(VAD.Mode.MODE_NORMAL);
-    return vad.createStream({
-        audioFrequency: audioFrequency,
-        debounceTime: 1000
-    });
-}
-
-function createRecognizer(speechConfig) {
-    const speechClient = new speech.SpeechClient();
-    let currentStream: StreamConfig = null;
-
-    //return speechClient.streamingRecognize({config: speechConfig});
-
-    return FlatMapStream.obj(data => {
-        if (data.speech.start) {
-            const startTime = data.speech.startTime;
-            currentStream = <StreamConfig>{
-                stream: speechClient.streamingRecognize({config: speechConfig}),
-                //stream: new PassThrough(),
-                readMapper: data => <any>{
-                    startTime: startTime,
-                    speech: data
-                },
-                writeMapper: data => {
-                    //console.log("write audio" + data.audioData.length);
-                    return data.audioData;
-                }
-            }
-        }
-        return currentStream;
+        // //.pipe(simpleRecognize(speechConfig))
+        //     .pipe(createSpeechFilter())
+        //     .pipe(createRecognizer(speechConfig))
+        //     //.pipe(createMatcher(lines, seekTimeMs, matchTreshold))
+        //     .on("error", console.log)
+        //     .on("data", data => {
+        //         data.audioData = null;
+        //         console.log(JSON.stringify(data, null, 2));
+        //         //console.log(data);
+        //     });
     });
 }
 
