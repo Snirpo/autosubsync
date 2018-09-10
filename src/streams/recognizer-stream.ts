@@ -12,8 +12,10 @@ export class RecognizerStream {
                 currentStream = <StreamConfig>{
                     stream: speechClient.streamingRecognize({config: config}),
                     readMapper: data => <any>{
-                        startTime: startTime,
-                        speech: data
+                        speech: {
+                            startTime: startTime,
+                            ...data
+                        }
                     },
                     writeMapper: data => {
                         return data.audioData;

@@ -1,4 +1,5 @@
 import * as FFmpeg from 'fluent-ffmpeg';
+import {Duplex} from "stream";
 
 export interface FFMPEGStreamConfig {
     seekTime: number;
@@ -8,7 +9,7 @@ export interface FFMPEGStreamConfig {
 }
 
 export class FFMPEGStream {
-    static create(inFile: string, config: FFMPEGStreamConfig) {
+    static create(inFile: string, config: FFMPEGStreamConfig): Duplex {
         return FFmpeg(inFile)
             .seekInput(config.seekTime)
             .duration(config.duration)
