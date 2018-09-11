@@ -69,21 +69,14 @@ export class FlatMapStream extends Duplex {
                 endListener();
             }
         });
-
-        console.log("NEW STREAM " + this.streamContextArray.length);
     }
 
     private _removeStream(config: StreamConfig) {
-        console.log("REMOVE STREAM");
         const index = this.streamContextArray.findIndex(s => s.config === config);
         if (index > -1) {
             this.streamContextArray[index].removeListeners();
             this.streamContextArray.splice(index, 1);
         }
-        // if (this.streamContextArray.length === 0) {
-        //     this.push(null);
-        //     this.end();
-        // }
     }
 
     _read(size) {
@@ -100,10 +93,10 @@ export class FlatMapStream extends Duplex {
     }
 
     _final(cb) {
-        console.log("FINAL STREAM");
         let streamCount = this.streamContextArray.length;
         const countingCallback = () => {
             if (--streamCount === 0) {
+                this.push(null);
                 cb();
             }
         };
@@ -115,9 +108,7 @@ export class FlatMapStream extends Duplex {
     }
 
     _destroy(err, cb) {
-        console.log("DESTROY STREAM");
         for (let context of this.streamContextArray) {
-            //context.removeListeners();
             context.config.stream.destroy(err);
         }
         this.streamContextArray = [];
