@@ -9,7 +9,9 @@ export class StreamUtils {
                 const stream = streams.reduce((current: any, next: any) => current.pipe(next));
                 let data = [];
                 stream.on("data", d => data.push(d));
-                stream.on("end", () => resolve(data));
+                eos(stream, err => {
+                    if (!err) resolve(data)
+                });
             })
         ]);
     }

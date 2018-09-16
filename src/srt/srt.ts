@@ -1,5 +1,6 @@
-import {Stream, Transform} from "stream";
+import {Readable, Transform, Writable} from "stream";
 import {StreamUtils} from "../util/stream-utils";
+import {ArrayStream} from "../util/array-stream";
 
 const TIME_SEPARATOR = " --> ";
 
@@ -8,20 +9,29 @@ export interface SrtLine {
     startTime: number;
     endTime: number;
     text: string;
+    textLines: string[];
 }
 
 export class Srt {
-    static readLinesFromStream(stream: Stream): Promise<SrtLine[]> {
+    static readLinesFromStream(stream: Readable): Promise<SrtLine[]> {
         return StreamUtils.toPromise(
             stream,
             SrtReadStream.create()
         );
     }
+
+    static writeLinesToStream(lines: SrtLine[], stream: Writable): Promise<void> {
+        return StreamUtils.toPromise(
+            ArrayStream.create(lines),
+            SrtWriteStream.create(),
+            stream
+        )
+    }
 }
 
 export class SrtReadStream extends Transform {
     state = 0;
-    current: SrtLine = <SrtLine>{number: 0, text: ""};
+    current: SrtLine = <SrtLine>{number: 0, text: "", textLines: []};
     buffer = Buffer.alloc(0);
 
     constructor() {
@@ -49,7 +59,7 @@ export class SrtReadStream extends Transform {
         if (line.length === 0) {
             if (this.current) this.push(this.current);
             this.state = 0;
-            this.current = <SrtLine>{number: 0, text: ""};
+            this.current = <SrtLine>{number: 0, text: "", textLines: []};
             return;
         }
 
@@ -67,6 +77,7 @@ export class SrtReadStream extends Transform {
             case 2:
                 if (this.current.text.length > 0) this.current.text += " ";
                 this.current.text += line;
+                this.current.textLines.push(line);
                 break;
         }
     }
@@ -80,5 +91,41 @@ export class SrtReadStream extends Transform {
 
     static create() {
         return new SrtReadStream();
+    }
+}
+
+export class SrtWriteStream extends Transform {
+
+    constructor() {
+        super({
+            readableObjectMode: false,
+            writableObjectMode: true
+        });
+    }
+
+    _transform(line: SrtLine, encoding, callback) {
+        this._processLine(line);
+        callback();
+    }
+
+    _processLine(line: SrtLine) {
+        const str = `${line.number}\n${SrtWriteStream.timeString(line.startTime)}${TIME_SEPARATOR}${SrtWriteStream.timeString(line.endTime)}\n${line.textLines.join("\n")}\n\n`;
+        this.push(str);
+    }
+
+    private static timeString(time: number): string {
+        const h = Math.floor(time / 3600000);
+        time = time - (h * 3600000);
+        const m = Math.floor(time / 60000);
+        time = time - (m * 60000);
+        const s = Math.floor(time / 1000);
+        time = time - (s * 1000);
+        const ms = Math.floor(time);
+
+        return `${("0" + h).slice(-2)}:${("0" + m).slice(-2)}:${("0" + s).slice(-2)},${("00" + ms).slice(-3)}`;
+    }
+
+    static create() {
+        return new SrtWriteStream();
     }
 }

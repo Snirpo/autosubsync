@@ -20,7 +20,7 @@
     "end-of-stream": "^1.4.1",
     "fluent-ffmpeg": "^2.1.2",
     "lodash": "^4.17.4",
-    "node-vad": "git+https://github.com/snirpo/node-vad.git",
+    "node-vad": "^1.0.0",
     "stream-shift": "^1.0.0",
     "talisman": "^0.19.1",
     "util-promisifyall": "^1.0.4",
