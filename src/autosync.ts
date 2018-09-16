@@ -1,9 +1,10 @@
 import * as VAD from "node-vad";
-import {SrtLine, SrtReader} from "./srt/srt";
+import {SrtLine, Srt} from "./srt/srt";
 import {FFMPEGStream} from "./streams/ffmpeg-stream";
 import {RecognizerStream} from "./streams/recognizer-stream";
 import {MatcherStream} from "./streams/matcher-stream";
 import {StreamUtils} from "./util/stream-utils";
+import * as fs from "fs";
 
 const inFile = process.argv[2];
 const srtFile = process.argv[3];
@@ -24,7 +25,7 @@ const seekTimeMs = seekTime * 1000;
 const duration = 60;
 const matchTreshold = 0.60;
 
-SrtReader.readLines(srtFile)
+Srt.readLinesFromStream(fs.createReadStream(srtFile))
     .then(lines => synchronize(inFile, lines))
     .then(data => {
         console.log(JSON.stringify(data, null, 2));

@@ -1,6 +1,5 @@
-import * as _ from "lodash";
-import * as fs from "fs";
-import * as readline from "readline";
+import {Stream, Transform} from "stream";
+import {StreamUtils} from "../util/stream-utils";
 
 const TIME_SEPARATOR = " --> ";
 
@@ -11,104 +10,75 @@ export interface SrtLine {
     text: string;
 }
 
-export interface SrtBlock {
-    number: number;
-    startTime: number;
-    endTime: number;
-    text: string;
-    lines: SrtLine[];
+export class Srt {
+    static readLinesFromStream(stream: Stream): Promise<SrtLine[]> {
+        return StreamUtils.toPromise(
+            stream,
+            SrtReadStream.create()
+        );
+    }
 }
 
-export class SrtReader {
-    static readLines(inFile: string): Promise<SrtLine[]> {
-        return new Promise((resolve, reject) => {
-            const lines: SrtLine[] = [];
+export class SrtReadStream extends Transform {
+    state = 0;
+    current: SrtLine = <SrtLine>{number: 0, text: ""};
+    buffer = Buffer.alloc(0);
 
-            const stream = fs.createReadStream(inFile);
-            const rl = readline.createInterface({
-                input: stream
-            });
-
-            stream.on('error', function (err) {
-                reject(err);
-            });
-
-            let current: SrtLine = <SrtLine>{number: 0, text: ""};
-            let state = 0;
-            rl.on("line", function (line) {
-                if (!line) {
-                    lines.push(current);
-                    state = 0;
-                    current = <SrtLine>{number: 0, text: ""};
-                }
-                else {
-                    switch (state) {
-                        case 0:
-                            current.number = _.toNumber(line);
-                            state++;
-                            break;
-                        case 1:
-                            const times = line.split(TIME_SEPARATOR).map(timeString => SrtReader.parseTime(timeString));
-                            current.startTime = times[0];
-                            current.endTime = times[1];
-                            state++;
-                            break;
-                        case 2:
-                            if (current.text.length > 0) current.text += ' ';
-                            current.text += line;
-                            break;
-                    }
-                }
-            });
-
-            rl.on('close', function () {
-                resolve(lines);
-            });
+    constructor() {
+        super({
+            readableObjectMode: true,
+            writableObjectMode: false
         });
     }
 
-    static readBlocks(inFile: string): Promise<SrtBlock[]> {
-        return SrtReader.readLines(inFile).then(lines => SrtReader.linesToBlocks(lines));
+    _transform(chunk, encoding, callback) {
+        this.buffer = this._chunkTransform(Buffer.concat([this.buffer, chunk]), 0);
+        callback();
     }
 
-    static parseTime(timeStr: string): number {
+    _chunkTransform(chunk: Buffer, start: number) {
+        const end = chunk.indexOf("\n", start);
+        if (end > -1) {
+            this._processLine(chunk.toString("utf-8", start, end));
+            return this._chunkTransform(chunk, end + 1);
+        }
+        return chunk.slice(start);
+    }
+
+    _processLine(line: string) {
+        if (line.length === 0) {
+            if (this.current) this.push(this.current);
+            this.state = 0;
+            this.current = <SrtLine>{number: 0, text: ""};
+            return;
+        }
+
+        switch (this.state) {
+            case 0:
+                this.current.number = +line;
+                this.state++;
+                break;
+            case 1:
+                const times = line.split(TIME_SEPARATOR).map(timeString => SrtReadStream.parseTime(timeString));
+                this.current.startTime = times[0];
+                this.current.endTime = times[1];
+                this.state++;
+                break;
+            case 2:
+                if (this.current.text.length > 0) this.current.text += " ";
+                this.current.text += line;
+                break;
+        }
+    }
+
+    private static parseTime(timeStr: string): number {
         const timeArr = timeStr.trim().split(",");
         const hms = timeArr[0].split(":");
-        if (timeArr.length !== 2 || hms.length !== 3) throw new Error('invalid time: ' + timeStr);
-        return (_.toNumber(hms[0]) * 3600000) + (_.toNumber(hms[1]) * 60000) + (_.toNumber(hms[2]) * 1000) + _.toNumber(timeArr[1]);
+        if (timeArr.length !== 2 || hms.length !== 3) throw new Error(`Invalid timestamp: ${timeStr}`);
+        return (+hms[0] * 3600000) + (+hms[1] * 60000) + (+hms[2] * 1000) + +timeArr[1];
     }
 
-    static linesToBlocks(lines: SrtLine[]): SrtBlock[] {
-        const blocks: SrtBlock[] = [];
-
-        if (lines.length === 0) {
-            return blocks;
-        }
-
-        let currentBlock = <SrtBlock>{text: "", lines: []};
-        currentBlock.startTime = lines[0].startTime;
-        currentBlock.text += lines[0].text + " ";
-        currentBlock.lines.push(lines[0]);
-        blocks.push(currentBlock);
-
-        let prevLine = lines[0];
-        for (let i = 1; i < lines.length; i++) {
-            const currentLine = lines[i];
-
-            if (Math.abs(currentLine.startTime - prevLine.endTime) > 100) {
-                currentBlock.endTime = prevLine.endTime;
-
-                currentBlock = <SrtBlock>{text: "", lines: []};
-                currentBlock.startTime = currentLine.startTime;
-                blocks.push(currentBlock);
-            }
-
-            currentBlock.text += currentLine.text + " ";
-            currentBlock.lines.push(currentLine);
-
-            prevLine = currentLine;
-        }
-
-        return blocks;
+    static create() {
+        return new SrtReadStream();
     }
 }
