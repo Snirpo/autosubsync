@@ -19,7 +19,7 @@ export class MatcherStream extends Transform {
     }
 
     _transform(data: any, _, done) {
-        const matches = data.speech.results.reduce((matches, result) => {
+        data.speech.results.forEach(result => {
             const alternative = result.alternatives[0]; // Always first
             const transcript = alternative.transcript;
 
@@ -30,7 +30,7 @@ export class MatcherStream extends Transform {
                     const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[0].startTime);
                     const endTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[alternative.words.length - 1].endTime);
 
-                    matches.push({
+                    this.push({
                         index: index,
                         line: line,
                         hyp: {
@@ -42,12 +42,8 @@ export class MatcherStream extends Transform {
                     });
                 }
             });
-            return matches;
-        }, []);
+        });
 
-        if (matches.length === 1) {
-            return done(null, matches[0]);
-        }
         return done();
     }
 
@@ -71,7 +67,9 @@ export class MatcherStream extends Transform {
 
         const shortestStr = shortestWords.join(' ');
 
-        for (let i = 0; i < Math.min(longestWords.length, this.config.maxWordShift + 1); i++) {
+        const maxWordShift = this.config.maxWordShift === -1 ? longestWords.length : this.config.maxWordShift;
+
+        for (let i = 0; i < Math.min(longestWords.length, maxWordShift + 1); i++) {
             for (let j = i + this.config.minWordMatchCount; j <= Math.min(i + shortestWords.length, longestWords.length); j++) {
                 const longestStr = longestWords.slice(i, j).join(' ');
                 const distance = damerauLevenshtein(longestStr, shortestStr);

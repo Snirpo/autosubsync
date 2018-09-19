@@ -6,6 +6,7 @@ import {MatcherStream} from "./streams/matcher-stream";
 import {StreamUtils} from "./util/stream-utils";
 import * as fs from "fs";
 import * as path from "path";
+import {LOGGER} from "./logger/logger";
 
 const audioFrequency = 16000.0;
 const bitsPerSample = 16; // multiple of 8
@@ -25,6 +26,9 @@ export interface AutoSubSyncOptions {
     matchTreshold?: number,
     minWordMatchCount?: number,
     maxWordShift?: number,
+
+    overwrite?: boolean,
+    postfix?: string
 }
 
 export class AutoSubSync {
@@ -36,7 +40,9 @@ export class AutoSubSync {
                            duration = 15,
                            matchTreshold = 0.80,
                            minWordMatchCount = 4,
-                           maxWordShift = 4
+                           maxWordShift = 4,
+                           overwrite = false,
+                           postfix = 'synced'
                        }: AutoSubSyncOptions = {}) {
         return Srt.readLinesFromStream(fs.createReadStream(srtFile))
             .then(lines => {
@@ -63,8 +69,9 @@ export class AutoSubSync {
                     const avgDiff = matches.reduce((total, curr) => {
                         return total + (curr.line.startTime - curr.hyp.startTime);
                     }, 0) / matches.length;
-                    console.debug(matches);
-                    console.debug(`Number of matches: ${matches.length}\nAdjusting subs by ${avgDiff} ms`);
+                    LOGGER.debug(JSON.stringify(matches, null, 2));
+                    LOGGER.verbose(`Number of matches: ${matches.length}`);
+                    LOGGER.verbose(`Adjusting subs by ${avgDiff} ms`);
                     return lines.map(l => {
                         return {
                             ...l,
@@ -73,7 +80,7 @@ export class AutoSubSync {
                         }
                     });
                 }).then((lines: SrtLine[]) => {
-                    const outFile = `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}_synced.srt`;
+                    const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
                     return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
                 })
             });
