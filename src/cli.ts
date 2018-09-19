@@ -19,6 +19,7 @@ require('yargs')
         else if (argv.logLevel) {
             LOGGER.level = argv.logLevel;
         }
+        LOGGER.debug("args", argv);
         AutoSubSync.synchronize(argv.videoFile, argv.srtFile, argv);
     })
     .options({
@@ -39,7 +40,7 @@ require('yargs')
             describe: 'Duration of syncing from seek time'
         },
         minWordMatchCount: {
-            alias: 'mc',
+            alias: 'c',
             default: 4,
             global: true,
             requiresArg: true,
@@ -85,6 +86,14 @@ require('yargs')
             requiresArg: true,
             type: 'string',
             describe: 'Set log level'
+        },
+        dryRun: {
+            alias: 'dr',
+            default: false,
+            global: true,
+            requiresArg: false,
+            type: 'boolean',
+            describe: 'Disable writing to file'
         }
     })
     .help()

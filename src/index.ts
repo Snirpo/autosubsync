@@ -27,7 +27,8 @@ export interface AutoSubSyncOptions {
     minWordMatchCount?: number,
 
     overwrite?: boolean,
-    postfix?: string
+    postfix?: string,
+    dryRun?: boolean
 }
 
 export class AutoSubSync {
@@ -40,7 +41,8 @@ export class AutoSubSync {
                            matchTreshold = 0.80,
                            minWordMatchCount = 4,
                            overwrite = false,
-                           postfix = 'synced'
+                           postfix = 'synced',
+                           dryRun = false
                        }: AutoSubSyncOptions = {}) {
         return Srt.readLinesFromStream(fs.createReadStream(srtFile))
             .then(lines => {
@@ -77,8 +79,10 @@ export class AutoSubSync {
                         }
                     });
                 }).then((lines: SrtLine[]) => {
-                    const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
-                    return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
+                    if (!dryRun) {
+                        const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
+                        return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
+                    }
                 })
             });
     }
