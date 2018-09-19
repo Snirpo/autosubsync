@@ -25,7 +25,6 @@ export interface AutoSubSyncOptions {
 
     matchTreshold?: number,
     minWordMatchCount?: number,
-    maxWordShift?: number,
 
     overwrite?: boolean,
     postfix?: string
@@ -40,7 +39,6 @@ export class AutoSubSync {
                            duration = 15,
                            matchTreshold = 0.80,
                            minWordMatchCount = 4,
-                           maxWordShift = 4,
                            overwrite = false,
                            postfix = 'synced'
                        }: AutoSubSyncOptions = {}) {
@@ -62,13 +60,12 @@ export class AutoSubSync {
                     MatcherStream.create(lines, {
                         seekTime: seekTime * 1000,
                         matchTreshold: matchTreshold,
-                        maxWordShift: maxWordShift,
                         minWordMatchCount: minWordMatchCount
                     })
                 ).then((matches: any[]) => {
-                    const avgDiff = matches.reduce((total, curr) => {
+                    const avgDiff = Math.floor(matches.reduce((total, curr) => {
                         return total + (curr.line.startTime - curr.hyp.startTime);
-                    }, 0) / matches.length;
+                    }, 0) / matches.length);
                     LOGGER.debug(JSON.stringify(matches, null, 2));
                     LOGGER.verbose(`Number of matches: ${matches.length}`);
                     LOGGER.verbose(`Adjusting subs by ${avgDiff} ms`);

@@ -46,14 +46,6 @@ require('yargs')
             type: 'number',
             describe: 'Minimum words to match'
         },
-        maxWordShift: {
-            alias: 'ms',
-            default: -1,
-            global: true,
-            requiresArg: true,
-            type: 'number',
-            describe: 'Maximum shifting in sentence for matching'
-        },
         matchTreshold: {
             alias: 't',
             default: 0.80,

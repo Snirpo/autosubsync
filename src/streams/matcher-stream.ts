@@ -1,13 +1,23 @@
 import {Transform} from "stream";
 import {SrtLine} from "../srt/srt";
-import * as _ from "lodash";
 import * as damerauLevenshtein from 'talisman/metrics/distance/damerau-levenshtein';
+import * as _ from "lodash";
 
 export interface MatcherStreamConfig {
     minWordMatchCount: number,
-    maxWordShift: number,
     matchTreshold: number,
     seekTime: number
+}
+
+interface MatchResult {
+    percentage: number,
+    matches?: MatchInfo[]
+}
+
+interface MatchInfo {
+    words: string[],
+    startIndex: number,
+    endIndex: number
 }
 
 export class MatcherStream extends Transform {
@@ -18,17 +28,23 @@ export class MatcherStream extends Transform {
         });
     }
 
-    _transform(data: any, _, done) {
+    _transform(data: any, encoding, callback) {
         data.speech.results.forEach(result => {
             const alternative = result.alternatives[0]; // Always first
             const transcript = alternative.transcript;
 
             this.lines.forEach((line, index) => {
-                const matchPercentage = this.calculateSentenceMatchPercentage(transcript, line.text);
+                const lineWords = _.words(line.text);
 
-                if (matchPercentage > this.config.matchTreshold) {
-                    const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[0].startTime);
-                    const endTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[alternative.words.length - 1].endTime);
+                if (alternative.words.length < lineWords.length) {
+                    return;
+                }
+
+                const bestMatch = this.calculateSentenceMatchPercentage(alternative.words.map(w => w.word), lineWords);
+
+                if (bestMatch.percentage > this.config.matchTreshold) {
+                    const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.matches[0].startIndex].startTime);
+                    const endTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.matches[0].endIndex].endTime);
 
                     this.push({
                         index: index,
@@ -38,57 +54,70 @@ export class MatcherStream extends Transform {
                             startTime: this.config.seekTime + startTime,
                             endTime: this.config.seekTime + endTime
                         },
-                        matchPercentage: matchPercentage
+                        match: bestMatch
                     });
                 }
             });
         });
 
-        return done();
+        return callback();
     }
 
-    calculateSentenceMatchPercentage(str1: string, str2: string): number {
-        let bestPercentage = 0.0;
-
-        const str1Words = _.words(str1);
-        const str2Words = _.words(str2);
+    private calculateSentenceMatchPercentage(words1: string[], words2: string[]): MatchResult {
+        let bestMatch: MatchResult = {
+            percentage: 0.0
+        };
 
         let longestWords: string[];
         let shortestWords: string[];
 
-        if (str1Words.length > str2Words.length) {
-            longestWords = str1Words;
-            shortestWords = str2Words;
+        if (words1.length >= words2.length) {
+            longestWords = words1;
+            shortestWords = words2;
         }
         else {
-            longestWords = str2Words;
-            shortestWords = str1Words;
+            longestWords = words2;
+            shortestWords = words1;
         }
 
         const shortestStr = shortestWords.join(' ');
+        const shortest: MatchInfo = {
+            words: shortestWords,
+            startIndex: 0,
+            endIndex: shortestWords.length - 1
+        };
 
-        const maxWordShift = this.config.maxWordShift === -1 ? longestWords.length : this.config.maxWordShift;
-
-        for (let i = 0; i < Math.min(longestWords.length, maxWordShift + 1); i++) {
+        for (let i = 0; i < longestWords.length; i++) {
             for (let j = i + this.config.minWordMatchCount; j <= Math.min(i + shortestWords.length, longestWords.length); j++) {
-                const longestStr = longestWords.slice(i, j).join(' ');
-                const distance = damerauLevenshtein(longestStr, shortestStr);
-                const percentage = 1 - (distance / Math.max(longestStr.length, shortestStr.length));
+                const matchingWords = longestWords.slice(i, j);
+                const matchingStr = matchingWords.join(' ');
+                const distance = damerauLevenshtein(matchingStr, shortestStr);
+                const percentage = 1 - (distance / Math.max(matchingStr.length, shortestStr.length));
 
-                if (percentage === 1.0) {
-                    return 1.0;
+                if (percentage > bestMatch.percentage) {
+                    const match: MatchInfo = {
+                        words: matchingWords,
+                        startIndex: i,
+                        endIndex: j - 1
+                    };
+                    bestMatch = {
+                        percentage: percentage,
+                        matches: words1.length > words2.length ?
+                            [match, shortest] :
+                            [shortest, match]
+                    }
                 }
 
-                if (percentage > bestPercentage) {
-                    bestPercentage = percentage;
+                if (percentage === 1.0) {
+                    return bestMatch;
                 }
             }
         }
 
-        return bestPercentage;
+        return bestMatch;
     }
 
-    static toMillis(time) {
+    private static toMillis(time) {
         return (time.seconds * 1000) + (time.nanos / 1000000);
     }
 
