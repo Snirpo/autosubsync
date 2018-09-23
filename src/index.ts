@@ -1,12 +1,13 @@
 import * as VAD from "node-vad";
-import {Srt, SrtLine} from "./srt/srt";
-import {FFMPEGStream} from "./streams/ffmpeg-stream";
-import {RecognizerStream} from "./streams/recognizer-stream";
-import {MatcherStream} from "./streams/matcher-stream";
-import {StreamUtils} from "./util/stream-utils";
+import { Srt, SrtLine } from "./srt/srt";
+import { FFMPEGStream } from "./streams/ffmpeg-stream";
+import { RecognizerStream } from "./streams/recognizer-stream";
+import { MatcherStream } from "./streams/matcher-stream";
+import { StreamUtils } from "./util/stream-utils";
 import * as fs from "fs";
 import * as path from "path";
-import {LOGGER} from "./logger/logger";
+import { LOGGER } from "./logger/logger";
+import { Transform } from "stream";
 
 const audioFrequency = 16000.0;
 const bitsPerSample = 16; // multiple of 8
@@ -28,7 +29,9 @@ export interface AutoSubSyncOptions {
 
     overwrite?: boolean,
     postfix?: string,
-    dryRun?: boolean
+    dryRun?: boolean,
+
+    vad?: boolean
 }
 
 export class AutoSubSync {
@@ -42,48 +45,55 @@ export class AutoSubSync {
                            minWordMatchCount = 4,
                            overwrite = false,
                            postfix = 'synced',
-                           dryRun = false
+                           dryRun = false,
+                           vad = true
                        }: AutoSubSyncOptions = {}) {
         return Srt.readLinesFromStream(fs.createReadStream(srtFile))
             .then(lines => {
-                return StreamUtils.toPromise(
-                    FFMPEGStream.create(videoFile, {
-                        bitsPerSample: bitsPerSample,
-                        audioFrequency: audioFrequency,
-                        seekTime: seekTime,
-                        duration: duration
-                    }),
-                    VAD.createStream({
-                        audioFrequency: audioFrequency,
-                        debounceTime: 1000,
-                        mode: VAD.Mode.NORMAL
-                    }),
-                    RecognizerStream.create(speechConfig),
-                    MatcherStream.create(lines, {
-                        seekTime: seekTime * 1000,
-                        matchTreshold: matchTreshold,
-                        minWordMatchCount: minWordMatchCount
-                    })
-                ).then((matches: any[]) => {
-                    const avgDiff = Math.floor(matches.reduce((total, curr) => {
-                        return total + (curr.line.startTime - curr.hyp.startTime);
-                    }, 0) / matches.length);
-                    LOGGER.debug(JSON.stringify(matches, null, 2));
-                    LOGGER.verbose(`Number of matches: ${matches.length}`);
-                    LOGGER.verbose(`Adjusting subs by ${avgDiff} ms`);
-                    return lines.map(l => {
-                        return {
-                            ...l,
-                            startTime: l.startTime + avgDiff,
-                            endTime: l.endTime + avgDiff
+                const ffMpegStream = FFMPEGStream.create(videoFile, {
+                    bitsPerSample: bitsPerSample,
+                    audioFrequency: audioFrequency,
+                    seekTime: seekTime,
+                    duration: duration
+                });
+
+                const vadStream = VAD.createStream({
+                    audioFrequency: audioFrequency,
+                    debounceTime: 1000,
+                    mode: VAD.Mode.NORMAL
+                });
+
+                const matcherStream = MatcherStream.create(lines, {
+                    seekTime: seekTime * 1000,
+                    matchTreshold: matchTreshold,
+                    minWordMatchCount: minWordMatchCount
+                });
+
+                const promise = vad ?
+                    StreamUtils.toPromise(ffMpegStream, vadStream, RecognizerStream.create(speechConfig), matcherStream) :
+                    StreamUtils.toPromise(ffMpegStream, RecognizerStream.createWithoutVAD(speechConfig), matcherStream);
+
+                return promise
+                    .then((matches: any[]) => {
+                        const avgDiff = Math.floor(matches.reduce((total, curr) => {
+                            return total + (curr.line.startTime - curr.hyp.startTime);
+                        }, 0) / matches.length);
+                        LOGGER.debug(JSON.stringify(matches, null, 2));
+                        LOGGER.verbose(`Number of matches: ${matches.length}`);
+                        LOGGER.verbose(`Adjusting subs by ${avgDiff} ms`);
+                        return lines.map(l => {
+                            return {
+                                ...l,
+                                startTime: l.startTime + avgDiff,
+                                endTime: l.endTime + avgDiff
+                            };
+                        });
+                    }).then((lines: SrtLine[]) => {
+                        if (!dryRun) {
+                            const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
+                            return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
                         }
                     });
-                }).then((lines: SrtLine[]) => {
-                    if (!dryRun) {
-                        const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
-                        return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
-                    }
-                })
             });
     }
 }
