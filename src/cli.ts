@@ -4,7 +4,7 @@ import {AutoSubSync} from "./index";
 import {LOGGER} from "./logger/logger";
 
 require('yargs')
-    .command('$0 [videoFile] [srtFile]', 'Synchronize SRT with video file', (yargs) => {
+    .command('$0 <videoFile> [srtFile]', 'Synchronize SRT with video file', (yargs) => {
         yargs
             .positional('videoFile', {
                 describe: 'Video file'
@@ -19,8 +19,16 @@ require('yargs')
         else if (argv.logLevel) {
             LOGGER.level = argv.logLevel;
         }
+
         LOGGER.debug("args", argv);
-        AutoSubSync.synchronize(argv.videoFile, argv.srtFile, argv);
+        const options = {
+            ...argv,
+            vad: !argv.disableVad
+        };
+        if (argv.srtFile) {
+            return AutoSubSync.synchronize(argv.videoFile, argv.srtFile, options);
+        }
+        return AutoSubSync.synchronizeAll(argv.videoFile, options);
     })
     .options({
         seekTime: {
@@ -80,7 +88,7 @@ require('yargs')
             describe: 'Enable verbose logging'
         },
         logLevel: {
-            alias: 'l',
+            alias: 'log',
             default: 'info',
             global: true,
             requiresArg: true,
@@ -94,6 +102,22 @@ require('yargs')
             requiresArg: false,
             type: 'boolean',
             describe: 'Disable writing to file'
+        },
+        disableVad: {
+            alias: 'dv',
+            default: false,
+            global: true,
+            requiresArg: false,
+            type: 'boolean',
+            describe: 'Disable voice activation detection'
+        },
+        language: {
+            alias: 'l',
+            default: '',
+            global: true,
+            requiresArg: true,
+            type: 'string',
+            describe: 'Override SRT file language, otherwise auto-detect from filename'
         }
     })
     .help()

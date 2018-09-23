@@ -1,5 +1,6 @@
-import { FlatMapStream, StreamConfig } from "./flatmapstream";
+import {FlatMapStream, StreamConfig} from "./flatmapstream";
 import * as speech from "@google-cloud/speech";
+import {MapStream} from "./mapstream";
 
 export class RecognizerStream {
     static create(config: any) {
@@ -28,7 +29,8 @@ export class RecognizerStream {
 
     static createWithoutVAD(config: any) {
         const speechClient = new speech.SpeechClient();
-        const currentStream: StreamConfig = <StreamConfig>{
+
+        return MapStream.obj({
             stream: speechClient.streamingRecognize({config: config}),
             readMapper: data => <any>{
                 speech: {
@@ -36,11 +38,7 @@ export class RecognizerStream {
                     ...data
                 }
             },
-            writeMapper: data => {
-                return data;
-            }
-        };
-
-        return FlatMapStream.obj(() => currentStream);
+            writeMapper: data => data
+        });
     }
 }

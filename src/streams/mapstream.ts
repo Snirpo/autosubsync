@@ -1,4 +1,4 @@
-import { Duplex, DuplexOptions } from "stream";
+import {Duplex, DuplexOptions} from "stream";
 import * as eos from "end-of-stream";
 
 export interface StreamConfig {
@@ -17,16 +17,14 @@ export class MapStream extends Duplex {
         this._setStream(streamConfig);
     }
 
-    public static obj(mappingConfig: StreamConfig,
+    public static obj(streamConfig: StreamConfig,
                       options: DuplexOptions = {}) {
         options.objectMode = true;
-        return new MapStream(mappingConfig, options);
+        return new MapStream(streamConfig, options);
     }
 
     _write(data, enc, cb) {
-        data = this.streamConfig.writeMapper(data);
-
-        if (!this.streamConfig.stream.write(data)) {
+        if (!this.streamConfig.stream.write(this.streamConfig.writeMapper(data))) {
             this._ondrain = cb;
             return;
         }
@@ -80,9 +78,10 @@ export class MapStream extends Duplex {
     }
 
     _final(cb) {
-        this.streamContext.config.stream.end();
-        this.push(null);
-        cb();
+        this.streamContext.config.stream.end(() => {
+            this.push(null);
+            cb();
+        });
     }
 
     _destroy(err, cb) {
