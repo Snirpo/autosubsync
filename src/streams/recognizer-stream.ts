@@ -1,6 +1,5 @@
 import {FlatMapStream, StreamConfig} from "./flatmapstream";
 import * as speech from "@google-cloud/speech";
-import {MapStream} from "./mapstream";
 
 export class RecognizerStream {
     static create(config: any) {
@@ -24,21 +23,6 @@ export class RecognizerStream {
                 };
             }
             return currentStream;
-        });
-    }
-
-    static createWithoutVAD(config: any) {
-        const speechClient = new speech.SpeechClient();
-
-        return MapStream.obj({
-            stream: speechClient.streamingRecognize({config: config}),
-            readMapper: data => <any>{
-                speech: {
-                    startTime: 0,
-                    ...data
-                }
-            },
-            writeMapper: data => data
         });
     }
 }

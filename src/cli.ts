@@ -41,11 +41,11 @@ require('yargs')
         },
         duration: {
             alias: 'd',
-            default: 60,
+            default: 60000,
             global: true,
             requiresArg: true,
             type: 'number',
-            describe: 'Duration of syncing from seek time'
+            describe: 'Max duration of syncing in ms'
         },
         minWordMatchCount: {
             alias: 'c',
@@ -103,17 +103,9 @@ require('yargs')
             type: 'boolean',
             describe: 'Disable writing to file'
         },
-        disableVad: {
-            alias: 'dv',
-            default: false,
-            global: true,
-            requiresArg: false,
-            type: 'boolean',
-            describe: 'Disable voice activation detection'
-        },
         language: {
             alias: 'l',
-            default: '',
+            default: 'en',
             global: true,
             requiresArg: true,
             type: 'string',
