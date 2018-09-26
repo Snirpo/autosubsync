@@ -7,8 +7,8 @@ import * as fs from "fs";
 import * as path from "path";
 import {LOGGER} from "./logger/logger";
 import * as globby from "globby";
-import {Transform} from "stream";
-import * as FFmpeg from 'fluent-ffmpeg';
+import {Readable, Transform} from "stream";
+import {FfmpegStream} from "./streams/ffmpeg-stream";
 
 const audioFrequency = 16000.0;
 const bitsPerSample = 16; // multiple of 8
@@ -18,6 +18,15 @@ const SUPPORTED_LANGUAGES = {
     "nl": "nl-NL"
     //TODO: add more
 };
+
+const FFMPEG_ARGS = [
+    "-ac",
+    "1",
+    "-ar",
+    "16000",
+    "-f",
+    "s16le"
+];
 
 export interface AutoSubSyncOptions {
     seekTime?: number,
@@ -86,14 +95,9 @@ export class AutoSubSync {
                        }: AutoSubSyncOptions = {}) {
         return Srt.readLinesFromStream(fs.createReadStream(srtFile))
             .then(lines => {
-                const ffMpeg = FFmpeg(videoFile)
-                    .seekInput(seekTime)
-                    //.duration(60)
-                    .withAudioChannels(1)
-                    .withAudioFrequency(audioFrequency)
-                    .toFormat('s' + bitsPerSample.toString() + 'le')
+                const fileStream = fs.createReadStream(videoFile);
 
-                const ffMpegStream = ffMpeg.pipe();
+                const ffMpegStream = FfmpegStream.create(FFMPEG_ARGS);
 
                 const vadStream = VAD.createStream({
                     audioFrequency: audioFrequency,
@@ -115,9 +119,9 @@ export class AutoSubSync {
                     enableWordTimeOffsets: true
                 });
 
-                const stopStream = AutoSubSync.createStopStream(ffMpeg, duration);
+                const stopStream = new StopStream(fileStream, duration);
 
-                return StreamUtils.toPromise(ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream)
+                return StreamUtils.toPromise(fileStream, ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream)
                     .then((matches: any[]) => {
                         const avgDiff = Math.floor(matches.reduce((total, curr) => {
                             return total + (curr.line.startTime - curr.hyp.startTime);
@@ -140,11 +144,6 @@ export class AutoSubSync {
                     });
             });
     }
-
-    private static createStopStream(ffmpeg, maxDuration) {
-        return new StopStream(ffmpeg, maxDuration);
-    }
-
 }
 
 class StopStream extends Transform {
@@ -152,7 +151,7 @@ class StopStream extends Transform {
     totalDuration = 0;
     finished = false;
 
-    constructor(private ffmpeg, private maxDuration) {
+    constructor(private stream: Readable, private maxDuration: number) {
         super({
             objectMode: true
         });
@@ -168,7 +167,7 @@ class StopStream extends Transform {
         }
         this.duration = chunk.speech.duration;
         if (this.totalDuration >= this.maxDuration) {
-            this.ffmpeg.ffmpegProc.stdin.write('q'); // A bit hacky...
+            this.stream.destroy();
             this.finished = true;
             return callback();
         }
