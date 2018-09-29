@@ -7,8 +7,8 @@ import * as fs from "fs";
 import * as path from "path";
 import {LOGGER} from "./logger/logger";
 import * as globby from "globby";
-import {Readable, Transform} from "stream";
 import {FfmpegStream} from "./streams/ffmpeg-stream";
+import {StopStream} from "./util/stop-stream";
 
 const audioFrequency = 16000.0;
 const bitsPerSample = 16; // multiple of 8
@@ -76,7 +76,7 @@ export class AutoSubSync {
                 return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
             }
 
-            LOGGER.verbose(`No SRT file found for language ${language}, falling back to syncing all files`);
+            LOGGER.verbose(`No SRT file found for language ${language}, falling back to syncing all SRT files`);
             return Promise.all(srtFiles.map(srtFile => AutoSubSync.synchronize(videoFile, srtFile.file, options)));
         })
     }
@@ -106,7 +106,8 @@ export class AutoSubSync {
                 });
 
                 const matcherStream = MatcherStream.create(lines, {
-                    seekTime: seekTime * 1000,
+                    seekTime: 0,
+                    //seekTime: seekTime * 1000,
                     matchTreshold: matchTreshold,
                     minWordMatchCount: minWordMatchCount
                 });
@@ -146,31 +147,4 @@ export class AutoSubSync {
     }
 }
 
-class StopStream extends Transform {
-    duration = 0;
-    totalDuration = 0;
-    finished = false;
 
-    constructor(private stream: Readable, private maxDuration: number) {
-        super({
-            objectMode: true
-        });
-    }
-
-    _transform(chunk: any, encoding, callback) {
-        if (this.finished) {
-            return callback();
-        }
-
-        if (chunk.speech.start) {
-            this.totalDuration += this.duration;
-        }
-        this.duration = chunk.speech.duration;
-        if (this.totalDuration >= this.maxDuration) {
-            this.stream.destroy();
-            this.finished = true;
-            return callback();
-        }
-        return callback(null, chunk);
-    }
-}

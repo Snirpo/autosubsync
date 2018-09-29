@@ -1,19 +1,33 @@
-import {PassThrough, Readable, TransformOptions} from "stream";
+import {Transform} from "stream";
 
-export class StopStream extends PassThrough {
-    constructor(private streamToStop: Readable, private stopFn: (data: any) => boolean, opts: TransformOptions = {}) {
-        super(opts);
+export class StopStream extends Transform {
+    duration = 0;
+    totalDuration = 0;
+    finished = false;
+
+    constructor(private stream: any, private maxDuration: number) {
+        super({
+            objectMode: true
+        });
     }
 
-    _transform(data: any, encoding, callback) {
-        if (this.stopFn(data)) {
-            console.log("stopping stream")
-            this.streamToStop.destroy();
+    _transform(chunk: any, encoding, callback) {
+        if (this.finished) {
+            return callback();
         }
-        return callback(null, data);
-    }
 
-    static create(streamToStop: Readable, stopFn: (data: any) => boolean, opts: TransformOptions = {}) {
-        return new StopStream(streamToStop, stopFn, opts);
+        if (chunk.speech.start) {
+            this.totalDuration += this.duration;
+        }
+        this.duration = chunk.speech.duration;
+        if (this.totalDuration >= this.maxDuration) {
+            this.stream.push(null); // A bit hacky...
+            this.stream.close();
+            this.finished = true;
+            this.push(null);
+            return callback();
+        }
+        this.push(chunk);
+        return callback();
     }
 }
