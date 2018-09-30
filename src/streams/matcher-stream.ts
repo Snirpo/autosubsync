@@ -36,10 +36,6 @@ export class MatcherStream extends Transform {
             this.lines.forEach((line, index) => {
                 const lineWords = _.words(line.text);
 
-                if (alternative.words.length < lineWords.length) {
-                    return;
-                }
-
                 const bestMatch = this.calculateSentenceMatchPercentage(alternative.words.map(w => w.word), lineWords);
 
                 if (bestMatch.percentage > this.config.matchTreshold) {

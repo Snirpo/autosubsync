@@ -104,7 +104,7 @@ export class AutoSubSync {
 
                 const matcherStream = MatcherStream.create(lines, {
                     seekTime: 0,
-                    //seekTime: seekTime * 1000,
+                    //seekTime: 600 * 1000,
                     matchTreshold: matchTreshold,
                     minWordMatchCount: minWordMatchCount
                 });
@@ -114,6 +114,7 @@ export class AutoSubSync {
                     sampleRateHertz: audioFrequency,
                     languageCode: language,
                     model: language === "en-US" ? "video" : "default", // video profile is only supported in en-US for now
+                    //model: "default",
                     enableWordTimeOffsets: true
                 });
 
@@ -121,20 +122,26 @@ export class AutoSubSync {
 
                 return StreamUtils.toPromise(fileStream, ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream)
                     .then((matches: any[]) => {
-                        const avgDiff = Math.floor(matches.reduce((total, curr) => {
-                            return total + (curr.line.startTime - curr.hyp.startTime);
-                        }, 0) / matches.length);
-                        LOGGER.debug(JSON.stringify(matches, null, 2));
-                        LOGGER.verbose(`Number of matches: ${matches.length}`);
-                        LOGGER.verbose(`Adjusting subs by ${avgDiff} ms`);
-                        return lines.map(l => {
-                            return {
-                                ...l,
-                                startTime: l.startTime + avgDiff,
-                                endTime: l.endTime + avgDiff
-                            };
-                        });
+                        if (matches.length > 0) {
+                            const avgDiff = Math.floor(matches.reduce((total, curr) => {
+                                return total + (curr.line.startTime - curr.hyp.startTime);
+                            }, 0) / matches.length);
+                            LOGGER.debug(JSON.stringify(matches, null, 2));
+                            LOGGER.verbose(`Number of matches: ${matches.length}`);
+                            LOGGER.verbose(`Adjusting subs by ${avgDiff} ms`);
+                            return lines.map(l => {
+                                return {
+                                    ...l,
+                                    startTime: l.startTime + avgDiff,
+                                    endTime: l.endTime + avgDiff
+                                };
+                            });
+                        }
+                        LOGGER.warn('No matches');
+                        return null;
                     }).then((lines: SrtLine[]) => {
+                        if (!lines) return Promise.resolve();
+
                         if (!dryRun) {
                             const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
                             return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
