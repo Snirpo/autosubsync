@@ -16,17 +16,18 @@ export class StopStream extends Transform {
             return callback();
         }
 
-        if (chunk.speech.start) {
-            this.totalDuration += this.duration;
+        if (chunk.speech.end) {
+            this.totalDuration += chunk.speech.duration;
         }
-        this.duration = chunk.speech.duration;
+
         if (this.totalDuration >= this.maxDuration) {
-            this.stream.push(null); // A bit hacky...
-            this.stream.close();
+            //this.stream.push(null); // A bit hacky...
+            this.stream.destroy();
             this.finished = true;
             this.push(null);
             return callback();
         }
+
         this.push(chunk);
         return callback();
     }

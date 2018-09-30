@@ -28,6 +28,10 @@ export class FlatMapStream extends Duplex {
 
     _write(data, enc, cb) {
         const config = this.streamSelector(data);
+        if (!config) {
+            return cb();
+        }
+
         if (this.streamContextArray.findIndex(s => s.config === config) === -1) {
             this._addStream(config);
         }

@@ -29,7 +29,6 @@ const FFMPEG_ARGS = [
 ];
 
 export interface AutoSubSyncOptions {
-    seekTime?: number,
     duration?: number,
 
     matchTreshold?: number,
@@ -46,7 +45,6 @@ export class AutoSubSync {
 
     static synchronizeAll(videoFile: string,
                           {
-                              seekTime = 600,
                               duration = 15000,
                               matchTreshold = 0.80,
                               minWordMatchCount = 4,
@@ -84,7 +82,6 @@ export class AutoSubSync {
     static synchronize(videoFile: string,
                        srtFile: string,
                        {
-                           seekTime = 600,
                            duration = 15000,
                            matchTreshold = 0.80,
                            minWordMatchCount = 4,

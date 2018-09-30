@@ -7,6 +7,10 @@ export class RecognizerStream {
         let currentStream: StreamConfig = null;
 
         return FlatMapStream.obj(data => {
+            if (!data.speech.state) {
+                return null;
+            }
+
             if (data.speech.start) {
                 const startTime = data.speech.startTime;
                 currentStream = <StreamConfig>{

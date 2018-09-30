@@ -1,42 +1,38 @@
 import {Readable, Writable} from "stream";
-import * as eos from "end-of-stream";
 
 export class StreamUtils {
     static toPromise(...streams: (Readable | Writable)[]): Promise<any> {
+        const stream = streams.reduce((current: any, next: any) => current.pipe(next));
+        let data = [];
+        stream.on("data", d => data.push(d));
+
+        return StreamUtils.onAllEnd(streams).then(() => data);
+    }
+
+    static onAllEnd(streams: (Readable | Writable)[]) {
         return Promise.race([
             StreamUtils.onAllError(streams),
-            new Promise(resolve => {
-                const stream = streams.reduce((current: any, next: any) => current.pipe(next));
-                let data = [];
-                stream.on("data", d => data.push(d));
-                eos(stream, err => {
-                    if (!err) resolve(data)
-                });
+            StreamUtils.onEnd(streams[streams.length - 1]).then(() => {
+                StreamUtils.destroyAll(streams);
+                return Promise.resolve();
             })
         ]);
     }
 
     static onAllError(streams: (Readable | Writable)[]) {
-        return Promise.race(streams.map(s => StreamUtils.onError(s))).catch(err => {
-            streams.forEach(s => s.destroy(err));
+        return Promise.race(streams.map(StreamUtils.onError)).catch(err => {
+            StreamUtils.destroyAll(streams, err);
             return Promise.reject(err);
         });
     }
 
-    static onAllEnd(streams: (Readable | Writable)[]) {
-        return Promise.all(streams.map(s => StreamUtils.onEnd(s))).catch(err => {
-            streams.forEach(s => s.destroy(err));
-            return Promise.reject(err);
-        });
+    static destroyAll(streams: (Readable | Writable)[], error?: Error) {
+        streams.forEach(s => s.destroy(error));
     }
 
     static onEnd(stream: (Readable | Writable)) {
         let readable = (<any>stream).readable;
         let writable = (<any>stream).writable;
-
-        if (!readable && !writable) {
-            return Promise.reject("Stream not readable and not writable, already finished?");
-        }
 
         return new Promise((resolve, reject) => {
             stream.on('end', () => {
@@ -54,13 +50,6 @@ export class StreamUtils {
     }
 
     static onError(stream: (Readable | Writable)) {
-        const readable = (<any>stream).readable;
-        const writable = (<any>stream).writable;
-
-        if (!readable && !writable) {
-            return Promise.reject("Stream not readable and not writable, already finished?");
-        }
-
         return new Promise((resolve, reject) => {
             stream.on('error', err => reject(err));
         });

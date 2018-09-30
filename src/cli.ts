@@ -31,14 +31,6 @@ require('yargs')
         return AutoSubSync.synchronizeAll(argv.videoFile, options);
     })
     .options({
-        seekTime: {
-            alias: 's',
-            default: 600,
-            global: true,
-            requiresArg: true,
-            type: 'number',
-            describe: 'Seek time in video file to start syncing'
-        },
         duration: {
             alias: 'd',
             default: 60000,

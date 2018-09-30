@@ -9,7 +9,6 @@ export class LoggerStream extends Transform {
     }
 
     _transform(chunk: any, encoding, callback) {
-        //LOGGER.info("chunk", chunk);
         LOGGER.info(`chunk ${chunk.length}`);
         return callback(null, chunk);
     }
