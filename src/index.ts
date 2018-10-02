@@ -11,7 +11,6 @@ import {FfmpegStream} from "./streams/ffmpeg-stream";
 import {StopStream} from "./util/stop-stream";
 
 const audioFrequency = 16000.0;
-const bitsPerSample = 16; // multiple of 8
 
 const SUPPORTED_LANGUAGES = {
     "en": "en-US",
@@ -19,32 +18,27 @@ const SUPPORTED_LANGUAGES = {
     //TODO: add more
 };
 
-const FFMPEG_ARGS = [
-    "-ac",
-    "1",
-    "-ar",
-    "16000",
-    "-f",
-    "s16le"
-];
-
 export interface AutoSubSyncOptions {
-    duration?: number,
+    seekTime?: number
+    duration?: number
 
-    matchTreshold?: number,
-    minWordMatchCount?: number,
+    matchTreshold?: number
+    minWordMatchCount?: number
 
-    overwrite?: boolean,
-    postfix?: string,
-    dryRun?: boolean,
+    overwrite?: boolean
+    postfix?: string
+    dryRun?: boolean
 
     language?: string
+
+    speechApiKeyFile?: string
 }
 
 export class AutoSubSync {
 
     static synchronizeAll(videoFile: string,
                           {
+                              seekTime = 0,
                               duration = 15000,
                               matchTreshold = 0.80,
                               minWordMatchCount = 4,
@@ -82,19 +76,22 @@ export class AutoSubSync {
     static synchronize(videoFile: string,
                        srtFile: string,
                        {
+                           seekTime = 0,
                            duration = 15000,
                            matchTreshold = 0.80,
                            minWordMatchCount = 4,
                            overwrite = false,
                            postfix = 'synced',
                            dryRun = false,
-                           language = "en-US"
+                           language = "en-US",
+                           speechApiKeyFile
                        }: AutoSubSyncOptions = {}) {
         return Srt.readLinesFromStream(fs.createReadStream(srtFile))
             .then(lines => {
+                //const seekBytes = seekTime * 32; // 32 bytes for 1 ms
                 const fileStream = fs.createReadStream(videoFile);
 
-                const ffMpegStream = FfmpegStream.create(FFMPEG_ARGS);
+                const ffMpegStream = FfmpegStream.create();
 
                 const vadStream = VAD.createStream({
                     audioFrequency: audioFrequency,
@@ -103,10 +100,9 @@ export class AutoSubSync {
                 });
 
                 const matcherStream = MatcherStream.create(lines, {
-                    seekTime: 0,
-                    //seekTime: 600 * 1000,
                     matchTreshold: matchTreshold,
-                    minWordMatchCount: minWordMatchCount
+                    minWordMatchCount: minWordMatchCount,
+                    seekTime: seekTime
                 });
 
                 const recognizerStream = RecognizerStream.create({
@@ -114,9 +110,8 @@ export class AutoSubSync {
                     sampleRateHertz: audioFrequency,
                     languageCode: language,
                     model: language === "en-US" ? "video" : "default", // video profile is only supported in en-US for now
-                    //model: "default",
                     enableWordTimeOffsets: true
-                });
+                }, speechApiKeyFile);
 
                 const stopStream = new StopStream(fileStream, duration);
 
@@ -126,14 +121,15 @@ export class AutoSubSync {
                             const avgDiff = Math.floor(matches.reduce((total, curr) => {
                                 return total + (curr.line.startTime - curr.hyp.startTime);
                             }, 0) / matches.length);
+                            const shift = -avgDiff;
                             LOGGER.debug(JSON.stringify(matches, null, 2));
                             LOGGER.verbose(`Number of matches: ${matches.length}`);
-                            LOGGER.verbose(`Adjusting subs by ${avgDiff} ms`);
+                            LOGGER.verbose(`Adjusting subs by ${shift} ms`);
                             return lines.map(l => {
                                 return {
                                     ...l,
-                                    startTime: l.startTime + avgDiff,
-                                    endTime: l.endTime + avgDiff
+                                    startTime: l.startTime + shift,
+                                    endTime: l.endTime + shift
                                 };
                             });
                         }

@@ -2,8 +2,10 @@ import {FlatMapStream, StreamConfig} from "./flatmapstream";
 import * as speech from "@google-cloud/speech";
 
 export class RecognizerStream {
-    static create(config: any) {
-        const speechClient = new speech.SpeechClient();
+    static create(config: any, keyFile?: string) {
+        const speechClient = new speech.SpeechClient({
+            keyFilename: keyFile
+        });
         let currentStream: StreamConfig = null;
 
         return FlatMapStream.obj(data => {

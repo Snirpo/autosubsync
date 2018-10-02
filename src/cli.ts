@@ -31,6 +31,14 @@ require('yargs')
         return AutoSubSync.synchronizeAll(argv.videoFile, options);
     })
     .options({
+        // seekTime: {
+        //     alias: 's',
+        //     default: 0,
+        //     global: true,
+        //     requiresArg: true,
+        //     type: 'number',
+        //     describe: 'Seek time (ms) in video file to start syncing'
+        // },
         duration: {
             alias: 'd',
             default: 60000,
@@ -102,6 +110,14 @@ require('yargs')
             requiresArg: true,
             type: 'string',
             describe: 'Override SRT file language, otherwise auto-detect from filename'
+        },
+        speechApiKeyFile: {
+            alias: 'keyfile',
+            default: undefined,
+            global: true,
+            requiresArg: true,
+            type: 'string',
+            describe: 'Google speech API key file'
         }
     })
     .help()
