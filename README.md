@@ -5,11 +5,14 @@ This project is in Beta.
 The README will be updated in the future.
 
 Autosubsync is a tool for syncing subtitles to video files.
-You need an Google Speech API key for this tool. Check this quickstart how to set this up:
+
+### Prerequisites
+- FFmpeg installed. Standard on most Linux distributions. On Windows see: https://ffmpeg.zeranoe.com/builds/. FFmpeg has to be on the system path! 
+- You need an Google Speech API key for this tool. Check this quickstart how to set this up:
 https://cloud.google.com/speech-to-text/docs/quickstart-client-libraries
 
-### Google Speech API
-You can provide the Google Speech API config file via the standard environment variable:
+### Google Speech API key file
+You can provide the Google Speech API key file via the standard environment variable:
 
 GOOGLE_APPLICATION_CREDENTIALS=config/speech_auth.json
 
