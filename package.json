@@ -1,13 +1,16 @@
 {
   "name": "autosubsync",
-  "version": "0.0.1",
+  "version": "0.0.0",
   "description": "Auto synchronize subtitles with video file",
   "main": "./index.js",
   "bin": "./cli.js",
   "scripts": {
     "build": "node build.js",
     "watch": "tsc -w",
-    "tslint": "tslint -c tslint.json -p tsconfig.json"
+    "tslint": "tslint -c tslint.json -p tsconfig.json",
+    "release-patch": "npm run build && npm version patch && npm publish dist",
+    "release-minor": "npm run build && npm version minor && npm publish dist",
+    "release-major": "npm run build && npm version major && npm publish dist"
   },
   "keywords": [
     "subtitles",
