@@ -8,9 +8,10 @@
     "build": "node build.js",
     "watch": "tsc -w",
     "tslint": "tslint -c tslint.json -p tsconfig.json",
-    "release-patch": "npm run build && npm version patch && npm publish dist",
-    "release-minor": "npm run build && npm version minor && npm publish dist",
-    "release-major": "npm run build && npm version major && npm publish dist"
+    "publish": "npm run build && npm publish dist",
+    "release-patch": "npm version patch && npm run publish",
+    "release-minor": "npm version minor && npm run publish",
+    "release-major": "npm version major && npm run publish"
   },
   "keywords": [
     "subtitles",
