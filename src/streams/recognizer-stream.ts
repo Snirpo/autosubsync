@@ -6,16 +6,15 @@ export class RecognizerStream {
         const speechClient = new speech.SpeechClient({
             keyFilename: keyFile
         });
-        let currentStream: StreamConfig = null;
 
-        return FlatMapStream.obj(data => {
-            if (!data.speech.state) {
-                return null;
+        return FlatMapStream.obj((data, callback) => {
+            if (data.speech.end) {
+                return callback();
             }
 
             if (data.speech.start) {
                 const startTime = data.speech.startTime;
-                currentStream = <StreamConfig>{
+                callback(<StreamConfig>{
                     stream: speechClient.streamingRecognize({config: config}),
                     readMapper: data => <any>{
                         speech: {
@@ -23,12 +22,9 @@ export class RecognizerStream {
                             ...data
                         }
                     },
-                    writeMapper: data => {
-                        return data.audioData;
-                    }
-                };
+                    writeMapper: data => data.audioData
+                });
             }
-            return currentStream;
         });
     }
 }

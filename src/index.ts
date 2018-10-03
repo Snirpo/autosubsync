@@ -56,7 +56,7 @@ export class AutoSubSync {
                 file: srtFile,
                 lang: path.basename(srtFile, ".srt").split(".").pop()
             }).filter(srtFile => !(srtFile.lang === "synced" || srtFile.lang === postfix));
-            LOGGER.verbose(`Srt files found`, srtFiles);
+            LOGGER.verbose("Srt files found", srtFiles);
 
             const options = {
                 ...arguments[1],
@@ -65,11 +65,17 @@ export class AutoSubSync {
 
             const srtFileForLang = srtFiles.find(srtFile => srtFile.lang === language);
             if (srtFileForLang) {
+                LOGGER.verbose(`SRT file found for language ${language}`);
                 return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
             }
 
-            LOGGER.verbose(`No SRT file found for language ${language}, falling back to syncing all SRT files`);
-            return Promise.all(srtFiles.map(srtFile => AutoSubSync.synchronize(videoFile, srtFile.file, options)));
+            LOGGER.verbose(`No SRT file found for language ${language}`);
+            if (srtFiles.length === 1) {
+                LOGGER.verbose(`Found 1 SRT file with unknown language, trying to sync with the english language`);
+                return AutoSubSync.synchronize(videoFile, srtFiles[0].file, options);
+            }
+
+            return Promise.reject("Found multiple SRT files, please specify which one to sync");
         })
     }
 
@@ -133,7 +139,7 @@ export class AutoSubSync {
                                 };
                             });
                         }
-                        LOGGER.warn('No matches');
+                        LOGGER.warn("No matches");
                         return null;
                     }).then((lines: SrtLine[]) => {
                         if (!lines) return Promise.resolve();
@@ -142,6 +148,7 @@ export class AutoSubSync {
                             const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
                             return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
                         }
+                        return Promise.resolve();
                     });
             });
     }

@@ -8,12 +8,13 @@ export interface StreamConfig {
 }
 
 export interface StreamSelector {
-    (data: any): StreamConfig;
+    (data: any, callback: (config?: StreamConfig) => void): void;
 }
 
 export class FlatMapStream extends Duplex {
     private _ondrain;
     private streamContextArray: { config: StreamConfig, removeListeners: () => void }[] = [];
+    private _currentConfig: StreamConfig;
 
     constructor(private streamSelector: StreamSelector,
                 options: DuplexOptions = {}) {
@@ -27,22 +28,28 @@ export class FlatMapStream extends Duplex {
     }
 
     _write(data, enc, cb) {
-        const config = this.streamSelector(data);
-        if (!config) {
-            return cb();
-        }
+        this.streamSelector(data, this.switchStream.bind(this));
 
-        if (this.streamContextArray.findIndex(s => s.config === config) === -1) {
-            this._addStream(config);
-        }
-
-        data = config.writeMapper(data);
-        if (!config.stream.write(data)) {
-            this._ondrain = cb;
-            return;
+        if (this._currentConfig) {
+            data = this._currentConfig.writeMapper(data);
+            if (!this._currentConfig.stream.write(data)) {
+                this._ondrain = cb;
+                return;
+            }
         }
 
         cb();
+    }
+
+    public switchStream(config?: StreamConfig) {
+        if (this._currentConfig) {
+            this._currentConfig.stream.end();
+        }
+        this._currentConfig = null;
+        if (config) {
+            this._addStream(config);
+            this._currentConfig = config;
+        }
     }
 
     private _addStream(config: StreamConfig) {
