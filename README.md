@@ -29,7 +29,7 @@ autosubsync <videoFile> [srtFile]
 Synchronize SRT with video file
 
 Positionals:
-  videoFile  Video file
+  videoFile  Video file --  can also be a glob, like: dir/video*.mkv
   srtFile    SRT file -- If not specified it tries to search for SRT files next to the video file.
 
 Options:

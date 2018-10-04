@@ -36,7 +36,7 @@ export interface AutoSubSyncOptions {
 
 export class AutoSubSync {
 
-    static synchronizeAll(videoFile: string,
+    static synchronizeAll(videoGlob: string,
                           {
                               seekTime = 0,
                               duration = 15000,
@@ -51,35 +51,37 @@ export class AutoSubSync {
             return Promise.reject(`Language ${language} not supported`);
         }
 
-        const basename = `${path.dirname(videoFile)}/${path.basename(videoFile, path.extname(videoFile))}`;
-        return globby(`${basename}*.srt`).then((arr: string[]) => {
-            const srtFiles = arr.map(srtFile => <any>{
-                file: srtFile,
-                lang: path.basename(srtFile, ".srt").split(".").pop()
-            }).filter(srtFile => !(srtFile.lang === "synced" || srtFile.lang === postfix));
-            LOGGER.verbose("SRT files found", srtFiles);
+        return globby(videoGlob).then(videoFiles => videoFiles.map(videoFile => {
+            const basename = `${path.dirname(videoFile)}/${path.basename(videoFile, path.extname(videoFile))}`;
+            return globby(`${basename}*.srt`).then((arr: string[]) => {
+                const srtFiles = arr.map(srtFile => <any>{
+                    file: srtFile,
+                    lang: path.basename(srtFile, ".srt").split(".").pop()
+                }).filter(srtFile => !(srtFile.lang === "synced" || srtFile.lang === postfix));
+                LOGGER.verbose("SRT files found", srtFiles);
 
-            const options = {
-                ...arguments[1],
-                language: SUPPORTED_LANGUAGES[language]
-            };
+                const options = {
+                    ...arguments[1],
+                    language: SUPPORTED_LANGUAGES[language]
+                };
 
-            const srtFileForLang = srtFiles.find(srtFile => srtFile.lang === language);
-            if (srtFileForLang) {
-                LOGGER.verbose(`SRT file found for language ${language}`);
-                return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
-            }
+                const srtFileForLang = srtFiles.find(srtFile => srtFile.lang === language);
+                if (srtFileForLang) {
+                    LOGGER.verbose(`SRT file found for language ${language}`);
+                    return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
+                }
 
-            LOGGER.verbose(`No SRT file found for language ${language}`);
-            const srtFileWithoutLangName = `${basename}.srt`;
-            const srtFileWithoutLang = srtFiles.find(srtFile => srtFile.file === srtFileWithoutLangName);
-            if (srtFileWithoutLang) {
-                LOGGER.verbose(`Found 1 SRT file with same name as video file, trying to sync with the english language`);
-                return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
-            }
+                LOGGER.verbose(`No SRT file found for language ${language}`);
+                const srtFileWithoutLangName = `${basename}.srt`;
+                const srtFileWithoutLang = srtFiles.find(srtFile => srtFile.file === srtFileWithoutLangName);
+                if (srtFileWithoutLang) {
+                    LOGGER.verbose(`Found 1 SRT file with same name as video file, trying to sync with the english language`);
+                    return AutoSubSync.synchronize(videoFile, srtFileWithoutLang.file, options);
+                }
 
-            return Promise.reject("Found multiple SRT files, please specify which one to sync");
-        })
+                return Promise.reject("Found multiple SRT files, please specify which one to sync");
+            })
+        }));
     }
 
     static synchronize(videoFile: string,
@@ -135,6 +137,11 @@ export class AutoSubSync {
                             LOGGER.verbose(`Number of matches: ${matches.length}`);
                             LOGGER.verbose(`Adjusting subs by ${shift} ms`);
                             return lines.map(l => {
+                                const startTime = l.startTime + shift;
+                                const endTime = l.endTime + shift;
+                                if (startTime < 0 || endTime < 0) {
+                                    throw new Error("New time of SRT line smaller than 0");
+                                }
                                 return {
                                     ...l,
                                     startTime: l.startTime + shift,
