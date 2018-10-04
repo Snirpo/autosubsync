@@ -11,13 +11,9 @@ export interface MatcherStreamConfig {
 
 interface MatchResult {
     percentage: number,
-    matches?: MatchInfo[]
-}
-
-interface MatchInfo {
-    words: string[],
-    startIndex: number,
-    endIndex: number
+    words?: string[],
+    startIndex?: number,
+    endIndex?: number
 }
 
 export class MatcherStream extends Transform {
@@ -39,8 +35,8 @@ export class MatcherStream extends Transform {
                 const bestMatch = this.calculateSentenceMatchPercentage(alternative.words.map(w => w.word), lineWords);
 
                 if (bestMatch && bestMatch.percentage > this.config.matchTreshold) {
-                    const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.matches[0].startIndex].startTime);
-                    const endTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.matches[0].endIndex].endTime);
+                    const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.startIndex].startTime);
+                    const endTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.endIndex].endTime);
 
                     this.push({
                         index: index,
@@ -69,29 +65,19 @@ export class MatcherStream extends Transform {
         };
 
         const subStr = subWords.join(' ');
-        const subMatch: MatchInfo = {
-            words: subWords,
-            startIndex: 0,
-            endIndex: subWords.length - 1
-        };
 
-        for (let i = -hypWords.length + 1; i < hypWords.length; i++) {
+        for (let i = 0; i < hypWords.length - subWords.length; i++) {
             const matchingWords = hypWords.slice(i, i + subWords.length);
             const matchingStr = matchingWords.join(' ');
             const distance = damerauLevenshtein(matchingStr, subStr);
             const percentage = 1 - (distance / subStr.length);
 
             if (percentage > bestMatch.percentage) {
-                const startIndex = i < 0 ? hypWords.length + i : i;
-                const endIndex = startIndex + subWords.length;
-                const hypMatch: MatchInfo = {
-                    words: matchingWords,
-                    startIndex: startIndex,
-                    endIndex: endIndex < hypWords.length ? endIndex : hypWords.length - 1
-                };
                 bestMatch = {
                     percentage: percentage,
-                    matches: [hypMatch, subMatch]
+                    words: matchingWords,
+                    startIndex: i,
+                    endIndex: i + subWords.length - 1
                 }
             }
 
