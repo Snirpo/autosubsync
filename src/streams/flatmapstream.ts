@@ -1,5 +1,6 @@
 import {Duplex, DuplexOptions} from "stream";
 import * as eos from "end-of-stream";
+import {LOGGER} from "../logger/logger";
 
 export interface StreamConfig {
     stream: Duplex;
@@ -15,6 +16,7 @@ export class FlatMapStream extends Duplex {
     private _ondrain;
     private streamContextArray: { config: StreamConfig, removeListeners: () => void }[] = [];
     private _currentConfig: StreamConfig;
+    private _endCallback;
 
     constructor(private streamSelector: StreamSelector,
                 options: DuplexOptions = {}) {
@@ -53,6 +55,7 @@ export class FlatMapStream extends Duplex {
     }
 
     private _addStream(config: StreamConfig) {
+        LOGGER.debug("Adding new stream");
         const endListener = eos(config.stream, err => {
             if (err) {
                 this.destroy(err);
@@ -83,10 +86,15 @@ export class FlatMapStream extends Duplex {
     }
 
     private _removeStream(config: StreamConfig) {
+        LOGGER.debug("Removing stream");
         const index = this.streamContextArray.findIndex(s => s.config === config);
         if (index > -1) {
             this.streamContextArray[index].removeListeners();
             this.streamContextArray.splice(index, 1);
+        }
+        // Dirty, but fixes a weird bug with callbacks not getting called on writable.end method
+        if (this.streamContextArray.length === 0 && this._endCallback) {
+            this._endCallback();
         }
     }
 
@@ -104,25 +112,22 @@ export class FlatMapStream extends Duplex {
     }
 
     _final(cb) {
-        let streamCount = this.streamContextArray.length;
-        const countingCallback = () => {
-            if (--streamCount === 0) {
-                this.push(null);
-                cb();
-            }
+        LOGGER.debug("Final flatmapstream");
+        this._endCallback = () => {
+            LOGGER.debug("End flatmapstream");
+            this.push(null);
+            cb();
         };
 
         for (let context of this.streamContextArray) {
-            context.config.stream.end(countingCallback);
+            context.config.stream.end();
         }
-        this.streamContextArray = [];
     }
 
     _destroy(err, cb) {
         for (let context of this.streamContextArray) {
             context.config.stream.destroy(err);
         }
-        this.streamContextArray = [];
 
         const ondrain = this._ondrain;
         this._ondrain = null;
