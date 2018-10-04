@@ -51,12 +51,13 @@ export class AutoSubSync {
             return Promise.reject(`Language ${language} not supported`);
         }
 
-        return globby(`${path.dirname(videoFile)}/${path.basename(videoFile, path.extname(videoFile))}*.srt`).then((arr: string[]) => {
+        const basename = `${path.dirname(videoFile)}/${path.basename(videoFile, path.extname(videoFile))}`;
+        return globby(`${basename}*.srt`).then((arr: string[]) => {
             const srtFiles = arr.map(srtFile => <any>{
                 file: srtFile,
                 lang: path.basename(srtFile, ".srt").split(".").pop()
             }).filter(srtFile => !(srtFile.lang === "synced" || srtFile.lang === postfix));
-            LOGGER.verbose("Srt files found", srtFiles);
+            LOGGER.verbose("SRT files found", srtFiles);
 
             const options = {
                 ...arguments[1],
@@ -70,9 +71,11 @@ export class AutoSubSync {
             }
 
             LOGGER.verbose(`No SRT file found for language ${language}`);
-            if (srtFiles.length === 1) {
-                LOGGER.verbose(`Found 1 SRT file with unknown language, trying to sync with the english language`);
-                return AutoSubSync.synchronize(videoFile, srtFiles[0].file, options);
+            const srtFileWithoutLangName = `${basename}.srt`;
+            const srtFileWithoutLang = srtFiles.find(srtFile => srtFile.file === srtFileWithoutLangName);
+            if (srtFileWithoutLang) {
+                LOGGER.verbose(`Found 1 SRT file with same name as video file, trying to sync with the english language`);
+                return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
             }
 
             return Promise.reject("Found multiple SRT files, please specify which one to sync");
