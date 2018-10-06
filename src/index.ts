@@ -51,7 +51,7 @@ export class AutoSubSync {
             return Promise.reject(`Language ${language} not supported`);
         }
 
-        return globby(videoGlob).then(videoFiles => videoFiles.map(videoFile => {
+        return globby(videoGlob).then(videoFiles => Promise.all(videoFiles.map(videoFile => {
             const basename = `${path.dirname(videoFile)}/${path.basename(videoFile, path.extname(videoFile))}`;
             return globby(`${basename}*.srt`).then((arr: string[]) => {
                 const srtFiles = arr.map(srtFile => <any>{
@@ -81,7 +81,7 @@ export class AutoSubSync {
 
                 return Promise.reject("Found multiple SRT files, please specify which one to sync");
             })
-        }));
+        })));
     }
 
     static synchronize(videoFile: string,
