@@ -29,7 +29,6 @@
     "@google-cloud/speech": "2.0.0",
     "end-of-stream": "^1.4.1",
     "fast-glob": "^2.2.3",
-    "fluent-ffmpeg": "^2.1.2",
     "lodash": "^4.17.11",
     "node-vad": "^1.1.1",
     "talisman": "^0.19.1",
