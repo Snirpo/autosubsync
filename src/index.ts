@@ -85,7 +85,7 @@ export class AutoSubSync {
                                 return AutoSubSync.synchronize(videoFile, srtFileWithoutLang.file, options);
                             }
 
-                            LOGGER.error(`${videoFile} - Found multiple SRT files, please specify which one to sync`);
+                            LOGGER.warn(`${videoFile} - No matching SRT file found`);
                             return Promise.resolve();
                         }
 
