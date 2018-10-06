@@ -24,11 +24,11 @@ Or you can pass it as an commandline variable, for example:
 
 You can install autosubsync with:
 
-npm install autosubsync
+npm install autosubsync -g
 
 If you get errors about permissions on Linux based OS's:
 
-npm install autosubsync --unsafe-perm
+npm install autosubsync -g --unsafe-perm
 
 ### Commandline options
 
