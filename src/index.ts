@@ -6,7 +6,7 @@ import {StreamUtils} from "./util/stream-utils";
 import * as fs from "fs";
 import * as path from "path";
 import {LOGGER} from "./logger/logger";
-import * as globby from "globby";
+import * as glob from "fast-glob";
 import {FfmpegStream} from "./streams/ffmpeg-stream";
 import {StopStream} from "./util/stop-stream";
 
@@ -51,39 +51,52 @@ export class AutoSubSync {
             return Promise.reject(`Language ${language} not supported`);
         }
 
-        return globby(videoGlob).then(videoFiles => {
-            LOGGER.verbose("Video files found", videoFiles);
-            return Promise.all(videoFiles.map(videoFile => {
-                const basename = `${path.dirname(videoFile)}/${path.basename(videoFile, path.extname(videoFile))}`;
-                return globby(`${basename}*.srt`).then((arr: string[]) => {
-                    const srtFiles = arr.map(srtFile => <any>{
-                        file: srtFile,
-                        lang: path.basename(srtFile, ".srt").split(".").pop()
-                    }).filter(srtFile => !(srtFile.lang === "synced" || srtFile.lang === postfix));
-                    LOGGER.verbose("SRT files found", srtFiles);
+        return glob(videoGlob).then((videoFiles: string[]) => {
+            if (videoFiles.length > 0) {
+                LOGGER.verbose(`${videoGlob} - Video files found`, videoFiles);
 
-                    const options = {
-                        ...arguments[1],
-                        language: SUPPORTED_LANGUAGES[language]
-                    };
+                return Promise.all(videoFiles.map(videoFile => {
+                    const basename = `${path.dirname(videoFile)}/${path.basename(videoFile, path.extname(videoFile))}`;
+                    return glob(`${basename}*.srt`).then((arr: string[]) => {
+                        const srtFiles = arr.map(srtFile => <any>{
+                            file: srtFile,
+                            lang: path.basename(srtFile, ".srt").split(".").pop()
+                        }).filter(srtFile => !(srtFile.lang === "synced" || srtFile.lang === postfix));
 
-                    const srtFileForLang = srtFiles.find(srtFile => srtFile.lang === language);
-                    if (srtFileForLang) {
-                        LOGGER.verbose(`SRT file found for language ${language}`);
-                        return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
-                    }
+                        if (srtFiles.length > 0) {
+                            LOGGER.verbose(`${videoFile} - SRT files found`, srtFiles);
 
-                    LOGGER.verbose(`No SRT file found for language ${language}`);
-                    const srtFileWithoutLangName = `${basename}.srt`;
-                    const srtFileWithoutLang = srtFiles.find(srtFile => srtFile.file === srtFileWithoutLangName);
-                    if (srtFileWithoutLang) {
-                        LOGGER.verbose(`Found 1 SRT file with same name as video file, trying to sync with the english language`);
-                        return AutoSubSync.synchronize(videoFile, srtFileWithoutLang.file, options);
-                    }
+                            const options = {
+                                ...arguments[1],
+                                language: SUPPORTED_LANGUAGES[language]
+                            };
 
-                    return Promise.reject("Found multiple SRT files, please specify which one to sync");
-                })
-            }))
+                            const srtFileForLang = srtFiles.find(srtFile => srtFile.lang === language);
+                            if (srtFileForLang) {
+                                LOGGER.verbose(`${videoFile} - SRT file found for language ${language}`);
+                                return AutoSubSync.synchronize(videoFile, srtFileForLang.file, options);
+                            }
+
+                            LOGGER.verbose(`${videoFile} - No SRT file found for language ${language}`);
+                            const srtFileWithoutLangName = `${basename}.srt`;
+                            const srtFileWithoutLang = srtFiles.find(srtFile => srtFile.file === srtFileWithoutLangName);
+                            if (srtFileWithoutLang) {
+                                LOGGER.verbose(`${videoFile} - Found 1 SRT file with same name as video file, trying to sync with the english language`);
+                                return AutoSubSync.synchronize(videoFile, srtFileWithoutLang.file, options);
+                            }
+
+                            LOGGER.error(`${videoFile} - Found multiple SRT files, please specify which one to sync`);
+                            return Promise.resolve();
+                        }
+
+                        LOGGER.verbose(`${videoFile} - No SRT files found`);
+                        return Promise.resolve();
+                    })
+                })).then(() => Promise.resolve());
+            }
+
+            LOGGER.verbose(`${videoGlob} - No video files found`);
+            return Promise.resolve();
         });
     }
 
@@ -100,7 +113,7 @@ export class AutoSubSync {
                            language = "en-US",
                            speechApiKeyFile
                        }: AutoSubSyncOptions = {}) {
-        LOGGER.verbose(`Syncing video file ${videoFile} with SRT file ${srtFile}`);
+        LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile}`);
 
         return Srt.readLinesFromStream(fs.createReadStream(srtFile))
             .then(lines => {
@@ -139,13 +152,14 @@ export class AutoSubSync {
                             }, 0) / matches.length);
                             const shift = -avgDiff;
                             LOGGER.debug(JSON.stringify(matches, null, 2));
-                            LOGGER.verbose(`Number of matches: ${matches.length}`);
-                            LOGGER.verbose(`Adjusting subs by ${shift} ms`);
+                            LOGGER.verbose(`${videoFile} - Number of matches: ${matches.length}`);
+                            LOGGER.verbose(`${videoFile} - Adjusting subs by ${shift} ms`);
+
                             return lines.map(l => {
                                 const startTime = l.startTime + shift;
                                 const endTime = l.endTime + shift;
                                 if (startTime < 0 || endTime < 0) {
-                                    throw new Error("New time of SRT line smaller than 0");
+                                    throw new Error(`${videoFile} - New time of SRT line smaller than 0`);
                                 }
                                 return {
                                     ...l,
@@ -154,15 +168,17 @@ export class AutoSubSync {
                                 };
                             });
                         }
-                        LOGGER.warn("No matches");
+                        LOGGER.warn(`${videoFile} - No matches`);
                         return null;
                     }).then((lines: SrtLine[]) => {
                         if (!lines) return Promise.resolve();
 
                         if (!dryRun) {
                             const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
+                            LOGGER.verbose(`${videoFile} - Writing synced SRT to ${outFile}`);
                             return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
                         }
+
                         return Promise.resolve();
                     });
             });
