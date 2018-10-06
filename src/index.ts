@@ -89,7 +89,7 @@ export class AutoSubSync {
                             return Promise.resolve();
                         }
 
-                        LOGGER.verbose(`${videoFile} - No SRT files found`);
+                        LOGGER.warn(`${videoFile} - No SRT files found`);
                         return Promise.resolve();
                     })
                 })).then(() => Promise.resolve());
