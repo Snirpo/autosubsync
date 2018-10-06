@@ -20,6 +20,15 @@ Or you can pass it as an commandline variable, for example:
 
 --keyfile=config/speech_auth.json (See below)
 
+### Installation
+
+You can install autosubsync with:
+
+npm install autosubsync
+
+If you get errors about permissions on Linux based OS's:
+
+npm install autosubsync --unsafe-perm
 
 ### Commandline options
 
