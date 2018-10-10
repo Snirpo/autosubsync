@@ -30,9 +30,9 @@ export class Srt {
 }
 
 export class SrtReadStream extends Transform {
-    state = 0;
-    current: SrtLine = <SrtLine>{number: 0, text: "", textLines: []};
-    buffer = Buffer.alloc(0);
+    private state = 0;
+    private current: SrtLine = <SrtLine>{number: 0, text: "", textLines: []};
+    private buffer = Buffer.alloc(0);
 
     constructor() {
         super({
@@ -56,7 +56,10 @@ export class SrtReadStream extends Transform {
     }
 
     _processLine(line: string) {
+        line = line.trim();
+
         if (line.length === 0) {
+            if (this.state === 0) return;
             if (this.current) this.push(this.current);
             this.state = 0;
             this.current = <SrtLine>{number: 0, text: "", textLines: []};
@@ -83,7 +86,7 @@ export class SrtReadStream extends Transform {
     }
 
     private static parseTime(timeStr: string): number {
-        const timeArr = timeStr.trim().split(",");
+        const timeArr = timeStr.split(",");
         const hms = timeArr[0].split(":");
         if (timeArr.length !== 2 || hms.length !== 3) throw new Error(`Invalid timestamp: ${timeStr}`);
         return (+hms[0] * 3600000) + (+hms[1] * 60000) + (+hms[2] * 1000) + +timeArr[1];

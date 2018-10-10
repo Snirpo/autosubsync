@@ -21,14 +21,10 @@ require('yargs')
         }
 
         LOGGER.debug("args", argv);
-        const options = {
-            ...argv,
-            vad: !argv.disableVad
-        };
         if (argv.srtFile) {
-            return AutoSubSync.synchronize(argv.videoFile, argv.srtFile, options);
+            return AutoSubSync.synchronize(argv.videoFile, argv.srtFile, argv);
         }
-        return AutoSubSync.synchronizeAll(argv.videoFile, options);
+        return AutoSubSync.synchronizeAll(argv.videoFile, argv);
     })
     .options({
         // seekTime: {
