@@ -25,7 +25,8 @@ export class MatcherStream extends Transform {
     }
 
     _transform(data: any, encoding, callback) {
-        data.speech.results.forEach(result => {
+        const speechResults: any[] = data.speech.results;
+        speechResults.forEach(result => {
             const alternative = result.alternatives[0]; // Always first
             const transcript = alternative.transcript;
 

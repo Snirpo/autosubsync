@@ -147,26 +147,13 @@ export class AutoSubSync {
                 return StreamUtils.toPromise(fileStream, ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream)
                     .then((matches: any[]) => {
                         if (matches.length > 0) {
-                            const avgDiff = Math.floor(matches.reduce((total, curr) => {
-                                return total + (curr.line.startTime - curr.hyp.startTime);
-                            }, 0) / matches.length);
-                            const shift = -avgDiff;
                             LOGGER.debug(JSON.stringify(matches, null, 2));
+
+                            const shift = AutoSubSync.calculateTimeShift(matches);
                             LOGGER.verbose(`${videoFile} - Number of matches: ${matches.length}`);
                             LOGGER.verbose(`${videoFile} - Adjusting subs by ${shift} ms`);
 
-                            return lines.map(l => {
-                                const startTime = l.startTime + shift;
-                                const endTime = l.endTime + shift;
-                                if (startTime < 0 || endTime < 0) {
-                                    throw new Error(`${videoFile} - New time of SRT line smaller than 0`);
-                                }
-                                return {
-                                    ...l,
-                                    startTime: l.startTime + shift,
-                                    endTime: l.endTime + shift
-                                };
-                            });
+                            return AutoSubSync.shiftLines(lines, shift, videoFile);
                         }
                         LOGGER.warn(`${videoFile} - No matches`);
                         return null;
@@ -182,6 +169,29 @@ export class AutoSubSync {
                         return Promise.resolve();
                     });
             });
+    }
+
+    private static calculateTimeShift(matches: any[]) {
+        return Math.floor(matches.reduce((total, curr) => {
+            const hypTime = (curr.hyp.startTime + curr.hyp.endTime) / 2;
+            const lineTime = (curr.line.startTime + curr.line.endTime) / 2;
+            return total + (hypTime - lineTime);
+        }, 0) / matches.length);
+    }
+
+    private static shiftLines(lines: SrtLine[], shift: number, videoFile: string) {
+        return lines.map(l => {
+            const startTime = l.startTime + shift;
+            const endTime = l.endTime + shift;
+            if (startTime < 0 || endTime < 0) {
+                throw new Error(`${videoFile} - New time of SRT line smaller than 0`);
+            }
+            return {
+                ...l,
+                startTime: l.startTime + shift,
+                endTime: l.endTime + shift
+            };
+        });
     }
 }
 
