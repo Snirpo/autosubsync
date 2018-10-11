@@ -1,6 +1,7 @@
 import {Readable, Transform, Writable} from "stream";
 import {StreamUtils} from "../util/stream-utils";
 import {ArrayStream} from "../util/array-stream";
+import * as _ from "lodash";
 
 const TIME_SEPARATOR = " --> ";
 
@@ -10,6 +11,7 @@ export interface SrtLine {
     endTime: number;
     text: string;
     textLines: string[];
+    words: string[]
 }
 
 export class Srt {
@@ -60,7 +62,10 @@ export class SrtReadStream extends Transform {
 
         if (line.length === 0) {
             if (this.state === 0) return;
-            if (this.current) this.push(this.current);
+            if (this.current) {
+                this.current.words = _.words(this.current.text);
+                this.push(this.current);
+            }
             this.state = 0;
             this.current = <SrtLine>{number: 0, text: "", textLines: []};
             return;

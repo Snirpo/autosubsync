@@ -172,11 +172,34 @@ export class AutoSubSync {
     }
 
     private static calculateTimeShift(matches: any[]) {
-        return Math.floor(matches.reduce((total, curr) => {
-            const hypTime = (curr.hyp.startTime + curr.hyp.endTime) / 2;
-            const lineTime = (curr.line.startTime + curr.line.endTime) / 2;
-            return total + (hypTime - lineTime);
-        }, 0) / matches.length);
+        const grouped = matches.reduce((map, match) => {
+            const hypTime = (match.hyp.startTime + match.hyp.endTime) / 2;
+            const lineTime = (match.line.startTime + match.line.endTime) / 2;
+            (map[match.line.number] = map[match.line.number] || []).push(hypTime - lineTime);
+            return map;
+        }, {});
+        LOGGER.debug("Grouped matches", grouped);
+        const groupedValues = Object.keys(grouped).map(key => grouped[key]);
+
+        const singleMatches = groupedValues.filter(m => m.length === 1).map(m => m[0]);
+        LOGGER.debug("Single matches", singleMatches);
+        const singleMatchAvg = AutoSubSync.calculateAverage(singleMatches);
+        LOGGER.debug(`Single match avg: ${singleMatchAvg}`);
+
+        const allMatches = groupedValues.map((matches: number[]) => {
+            return matches.reduce((c, m) => {
+                const diff = Math.abs(m - singleMatchAvg);
+                return diff < c ? m : c;
+            })
+        });
+        LOGGER.debug("All matches", allMatches);
+        const allMatchAvg = AutoSubSync.calculateAverage(allMatches);
+        LOGGER.debug(`All match avg: ${allMatchAvg}`);
+        return allMatchAvg;
+    }
+
+    private static calculateAverage(numbers: number[]) {
+        return Math.floor(numbers.reduce((total, diff) => total + diff, 0) / numbers.length);
     }
 
     private static shiftLines(lines: SrtLine[], shift: number, videoFile: string) {

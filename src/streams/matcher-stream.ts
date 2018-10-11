@@ -1,7 +1,6 @@
 import {Transform} from "stream";
 import {SrtLine} from "../srt/srt";
 import * as damerauLevenshtein from 'talisman/metrics/distance/damerau-levenshtein';
-import * as _ from "lodash";
 
 export interface MatcherStreamConfig {
     minWordMatchCount: number,
@@ -31,16 +30,13 @@ export class MatcherStream extends Transform {
             const transcript = alternative.transcript;
 
             this.lines.forEach((line, index) => {
-                const lineWords = _.words(line.text);
-
-                const bestMatch = this.calculateSentenceMatchPercentage(alternative.words.map(w => w.word), lineWords);
+                const bestMatch = this.calculateSentenceMatchPercentage(alternative.words.map(w => w.word), line.words);
 
                 if (bestMatch && bestMatch.percentage > this.config.matchTreshold) {
                     const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.startIndex].startTime);
                     const endTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.endIndex].endTime);
 
                     this.push({
-                        index: index,
                         line: line,
                         hyp: {
                             transcript: transcript,
