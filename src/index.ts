@@ -124,7 +124,7 @@ export class AutoSubSync {
 
                 const vadStream = VAD.createStream({
                     audioFrequency: audioFrequency,
-                    debounceTime: 1000,
+                    debounceTime: 500,
                     mode: VAD.Mode.NORMAL
                 });
 
@@ -173,8 +173,8 @@ export class AutoSubSync {
 
     private static calculateTimeShift(matches: any[]) {
         const grouped = matches.reduce((map, match) => {
-            const hypTime = (match.hyp.startTime + match.hyp.endTime) / 2;
-            const lineTime = (match.line.startTime + match.line.endTime) / 2;
+            const hypTime = match.hyp.startTime;
+            const lineTime = match.line.startTime;
             (map[match.line.number] = map[match.line.number] || []).push(hypTime - lineTime);
             return map;
         }, {});

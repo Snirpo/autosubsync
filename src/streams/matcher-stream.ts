@@ -28,16 +28,21 @@ export class MatcherStream extends Transform {
         speechResults.forEach(result => {
             const alternative = result.alternatives[0]; // Always first
             const transcript = alternative.transcript;
+            const hypWords = alternative.words.map(w => w.word);
 
-            this.lines.forEach((line, index) => {
-                const bestMatch = this.calculateSentenceMatchPercentage(alternative.words.map(w => w.word), line.words);
+            this.lines.filter(line => line.words.length >= this.config.minWordMatchCount).forEach(line => {
+                const bestMatch = MatcherStream.calculateBestMatch(hypWords, line.words);
 
                 if (bestMatch && bestMatch.percentage > this.config.matchTreshold) {
-                    const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.startIndex].startTime);
+                    const startTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.startIndex].endTime);
                     const endTime = data.speech.startTime + MatcherStream.toMillis(alternative.words[bestMatch.endIndex].endTime);
 
                     this.push({
                         line: line,
+                        speech: {
+                            startTime: data.speech.startTime,
+                            words: alternative.words
+                        },
                         hyp: {
                             transcript: transcript,
                             startTime: this.config.seekTime + startTime,
@@ -52,11 +57,7 @@ export class MatcherStream extends Transform {
         return callback();
     }
 
-    private calculateSentenceMatchPercentage(hypWords: string[], subWords: string[]): MatchResult {
-        if (subWords.length < this.config.minWordMatchCount) {
-            return null;
-        }
-
+    private static calculateBestMatch(hypWords: string[], subWords: string[]): MatchResult {
         let bestMatch: MatchResult = {
             percentage: 0.0
         };
