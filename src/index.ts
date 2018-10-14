@@ -115,7 +115,7 @@ export class AutoSubSync {
                        }: AutoSubSyncOptions = {}) {
         LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile}`);
 
-        return Srt.readLinesFromStream(fs.createReadStream(srtFile))
+        return Srt.readBlocksFromStream(fs.createReadStream(srtFile))
             .then(lines => {
                 //const seekBytes = seekTime * 32; // 32 bytes for 1 ms
                 const fileStream = fs.createReadStream(videoFile);
@@ -153,21 +153,20 @@ export class AutoSubSync {
                             LOGGER.verbose(`${videoFile} - Number of matches: ${matches.length}`);
                             LOGGER.verbose(`${videoFile} - Adjusting subs by ${shift} ms`);
 
-                            return AutoSubSync.shiftLines(lines, shift, videoFile);
+                            const orgLines: SrtLine[] = lines.reduce((lines, block) => [...lines, ...block.lines], []);
+                            const shiftedLines = AutoSubSync.shiftLines(orgLines, shift, videoFile);
+
+                            if (!dryRun) {
+                                const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
+                                LOGGER.verbose(`${videoFile} - Writing synced SRT to ${outFile}`);
+                                return Srt.writeLinesToStream(shiftedLines, fs.createWriteStream(outFile));
+                            }
+
+                            return Promise.resolve();
                         }
                         LOGGER.warn(`${videoFile} - No matches`);
-                        return null;
-                    }).then((lines: SrtLine[]) => {
-                        if (!lines) return Promise.resolve();
-
-                        if (!dryRun) {
-                            const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
-                            LOGGER.verbose(`${videoFile} - Writing synced SRT to ${outFile}`);
-                            return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
-                        }
-
                         return Promise.resolve();
-                    });
+                    })
             });
     }
 

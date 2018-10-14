@@ -14,12 +14,63 @@ export interface SrtLine {
     words: string[]
 }
 
+export interface SrtBlock extends SrtLine {
+    lines: SrtLine[];
+}
+
 export class Srt {
     static readLinesFromStream(stream: Readable): Promise<SrtLine[]> {
         return StreamUtils.toPromise(
             stream,
             SrtReadStream.create()
         );
+    }
+
+    static readBlocksFromStream(stream: Readable): Promise<SrtBlock[]> {
+        return Srt.readLinesFromStream(stream).then(lines => {
+            if (lines.length === 0) {
+                return [];
+            }
+
+            const firstLine = lines[0];
+            const firstBlock = {
+                number: 1,
+                startTime: firstLine.startTime,
+                endTime: -1,
+                text: firstLine.text,
+                textLines: [...firstLine.textLines],
+                words: [...firstLine.words],
+                lines: [firstLine]
+            };
+
+            const result: { lastLine: SrtLine, currentBlock: SrtBlock, blocks: SrtBlock[] } = lines.slice(1).reduce((result, line) => {
+                if (line.startTime - result.lastLine.endTime > 100) {
+                    result.currentBlock.endTime = result.lastLine.endTime;
+                    result.currentBlock = {
+                        number: result.currentBlock.number + 1,
+                        startTime: line.startTime,
+                        endTime: -1,
+                        text: "",
+                        textLines: [],
+                        words: [],
+                        lines: []
+                    };
+                    result.blocks.push(result.currentBlock);
+                }
+                result.currentBlock.text += " " + line.text;
+                result.currentBlock.textLines.push(...line.textLines);
+                result.currentBlock.words.push(...line.words);
+                result.currentBlock.lines.push(line);
+                result.lastLine = line;
+                return result;
+            }, {
+                lastLine: lines[0],
+                currentBlock: firstBlock,
+                blocks: [firstBlock]
+            });
+            result.currentBlock.endTime = lines[lines.length - 1].endTime;
+            return result.blocks;
+        });
     }
 
     static writeLinesToStream(lines: SrtLine[], stream: Writable): Promise<void> {
