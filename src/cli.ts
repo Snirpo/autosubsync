@@ -4,13 +4,13 @@ import {AutoSubSync} from "./index";
 import {LOGGER} from "./logger/logger";
 
 require('yargs')
-    .command('$0 <videoFile> [srtFile]', 'Synchronize SRT with video file', (yargs) => {
+    .command('$0 <videoFile> [srtFile]', 'Synchronize subtitles with video file.', (yargs) => {
         yargs
             .positional('videoFile', {
-                describe: 'Video file'
+                describe: 'Video file. Can also be a glob, like: dir/video*.mkv'
             })
             .positional('srtFile', {
-                describe: 'SRT file'
+                describe: 'SRT file. If not specified it tries to search for SRT files next to the video file.'
             })
     }, (argv) => {
         if (argv.verbose) {
@@ -33,7 +33,7 @@ require('yargs')
             global: true,
             requiresArg: true,
             type: 'number',
-            describe: 'Number of runs to try matching subtitles in the video file'
+            describe: 'Number of runs with different positions in the video file to try matching subtitles'
         },
         seekPercentage: {
             alias: 's',
@@ -41,7 +41,7 @@ require('yargs')
             global: true,
             requiresArg: true,
             type: 'number',
-            describe: 'Seek percentage (0.00 - 1.00) in video file to start syncing'
+            describe: 'Seek percentage (0.00 - 1.00) in video file to start matching'
         },
         duration: {
             alias: 'd',
