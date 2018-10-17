@@ -29,6 +29,7 @@ export class DuplexedStream extends Duplex {
             }
             else {
                 this._readableListeners();
+                this.push(null);
             }
         });
         const writableEndListener = eos(writable, err => {

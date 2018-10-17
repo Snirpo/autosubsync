@@ -63,7 +63,7 @@ export class SrtReadStream extends Transform {
         if (line.length === 0) {
             if (this.state === 0) return;
             if (this.current) {
-                this.current.words = _.words(this.current.text);
+                this.current.words = _.words(this.current.text).map(w => w.toLowerCase());
                 this.push(this.current);
             }
             this.state = 0;

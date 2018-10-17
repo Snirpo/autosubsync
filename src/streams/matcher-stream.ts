@@ -28,7 +28,7 @@ export class MatcherStream extends Transform {
         speechResults.forEach(result => {
             const alternative = result.alternatives[0]; // Always first
             const transcript = alternative.transcript;
-            const hypWords = alternative.words.map(w => w.word);
+            const hypWords = alternative.words.map(w => w.word.toLowerCase());
 
             this.lines.filter(line => line.words.length >= this.config.minWordMatchCount).forEach(line => {
                 const bestMatch = MatcherStream.calculateBestMatch(hypWords, line.words);
@@ -64,7 +64,7 @@ export class MatcherStream extends Transform {
 
         const subStr = subWords.join(' ');
 
-        for (let i = 0; i < hypWords.length - subWords.length; i++) {
+        for (let i = 0; i < hypWords.length - subWords.length + 1; i++) {
             const matchingWords = hypWords.slice(i, i + subWords.length);
             const matchingStr = matchingWords.join(' ');
             const distance = damerauLevenshtein(matchingStr, subStr);
