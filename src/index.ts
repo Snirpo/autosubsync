@@ -99,7 +99,11 @@ export class AutoSubSync {
 
     static synchronize(videoFile: string, srtFile: string, {
         runCount = 1,
-        seekPercentage = 0.2
+        seekPercentage = 0.2,
+        dryRun = false,
+        overwrite = false,
+        postfix = 'synced',
+        duration = 15
     }: AutoSubSyncOptions = {}) {
         if (runCount < 1) {
             return Promise.reject(`Invalid run count ${runCount}`);
@@ -112,88 +116,86 @@ export class AutoSubSync {
 
             const totalDuration = +info.format.duration;
             LOGGER.debug(`Total duration ${totalDuration}`);
-            const seekTime = seekPercentage * totalDuration;
+            const seekTime = Math.floor(seekPercentage * totalDuration);
             LOGGER.debug(`Seek time ${seekTime}`);
-            const chunkTime = (totalDuration - seekTime) / runCount;
+            const chunkTime = Math.floor((totalDuration - seekTime) / runCount);
             LOGGER.debug(`Chunk time ${chunkTime}`);
 
-            return Promise.all([...Array(runCount).keys()].map(i => {
-                const options = {
-                    ...arguments[2],
-                    seekTime: seekTime + (chunkTime * i)
-                };
-                return AutoSubSync.actualSynchronize(videoFile, srtFile, options);
-            })).then(() => Promise.resolve())
-        });
+            return Srt.readLinesFromStream(fs.createReadStream(srtFile))
+                .then(lines => {
+                    return Promise.all([...Array(runCount).keys()].map(i => {
+                        const options = {
+                            ...arguments[2],
+                            seekTime: seekTime + (chunkTime * i)
+                        };
+                        LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile} with seek time ${seekTime} and duration ${duration}`);
+                        return AutoSubSync.findMatches(videoFile, lines, options);
+                    })).then((matches: any[]) => {
+                        const totalMatches = matches.reduce((out: any[], curr: any[]) => [...out, ...curr], []);
+
+                        if (totalMatches.length > 0) {
+                            LOGGER.debug(JSON.stringify(matches, null, 2));
+
+                            const shift = AutoSubSync.calculateTimeShift(totalMatches);
+                            LOGGER.verbose(`${videoFile} - Number of matches: ${totalMatches.length}`);
+                            LOGGER.verbose(`${videoFile} - Adjusting subs by ${shift} ms`);
+
+                            const shiftedLines = AutoSubSync.shiftLines(lines, shift, videoFile);
+
+                            if (!dryRun) {
+                                const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
+                                LOGGER.verbose(`${videoFile} - Writing synced SRT to ${outFile}`);
+                                return Srt.writeLinesToStream(shiftedLines, fs.createWriteStream(outFile));
+                            }
+
+                            return Promise.resolve();
+                        }
+                        LOGGER.warn(`${videoFile} - No matches`);
+                        return Promise.resolve();
+                    })
+                })
+        })
 
     }
 
-    static actualSynchronize(videoFile: string,
-                             srtFile: string,
-                             {
-                                 seekTime = 0,
-                                 duration = 15,
-                                 matchTreshold = 0.80,
-                                 minWordMatchCount = 4,
-                                 overwrite = false,
-                                 postfix = 'synced',
-                                 dryRun = false,
-                                 language = "en-US",
-                                 speechApiKeyFile
-                             }: AutoSubSyncOptions = {}) {
-        LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile} with seek time ${seekTime} and duration ${duration}`);
+    static findMatches(videoFile: string,
+                       lines: SrtLine[],
+                       {
+                           seekTime = 0,
+                           duration = 15,
+                           matchTreshold = 0.80,
+                           minWordMatchCount = 4,
+                           overwrite = false,
+                           postfix = 'synced',
+                           dryRun = false,
+                           language = "en-US",
+                           speechApiKeyFile
+                       }: AutoSubSyncOptions = {}) {
+        const ffMpegStream = FfmpegStream.create(videoFile, seekTime);
 
-        return Srt.readLinesFromStream(fs.createReadStream(srtFile))
-            .then(lines => {
-                const ffMpegStream = FfmpegStream.create(videoFile, seekTime);
+        const vadStream = VAD.createStream({
+            audioFrequency: audioFrequency,
+            debounceTime: 500,
+            mode: VAD.Mode.NORMAL
+        });
 
-                const vadStream = VAD.createStream({
-                    audioFrequency: audioFrequency,
-                    debounceTime: 500,
-                    mode: VAD.Mode.NORMAL
-                });
+        const matcherStream = MatcherStream.create(lines, {
+            matchTreshold: matchTreshold,
+            minWordMatchCount: minWordMatchCount,
+            seekTime: seekTime * 1000
+        });
 
-                const matcherStream = MatcherStream.create(lines, {
-                    matchTreshold: matchTreshold,
-                    minWordMatchCount: minWordMatchCount,
-                    seekTime: seekTime * 1000
-                });
+        const recognizerStream = RecognizerStream.create({
+            encoding: 'LINEAR16',
+            sampleRateHertz: audioFrequency,
+            languageCode: language,
+            model: language === "en-US" ? "video" : "default", // video profile is only supported in en-US for now
+            enableWordTimeOffsets: true
+        }, speechApiKeyFile);
 
-                const recognizerStream = RecognizerStream.create({
-                    encoding: 'LINEAR16',
-                    sampleRateHertz: audioFrequency,
-                    languageCode: language,
-                    model: language === "en-US" ? "video" : "default", // video profile is only supported in en-US for now
-                    enableWordTimeOffsets: true
-                }, speechApiKeyFile);
+        const stopStream = new StopStream(ffMpegStream, duration * 1000);
 
-                const stopStream = new StopStream(ffMpegStream, duration * 1000);
-
-                return StreamUtils.toPromise(ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream)
-                    .then((matches: any[]) => {
-                        if (matches.length > 0) {
-                            LOGGER.debug(JSON.stringify(matches, null, 2));
-
-                            const shift = AutoSubSync.calculateTimeShift(matches);
-                            LOGGER.verbose(`${videoFile} - Number of matches: ${matches.length}`);
-                            LOGGER.verbose(`${videoFile} - Adjusting subs by ${shift} ms`);
-
-                            return AutoSubSync.shiftLines(lines, shift, videoFile);
-                        }
-                        LOGGER.warn(`${videoFile} - No matches`);
-                        return null;
-                    }).then((lines: SrtLine[]) => {
-                        if (!lines) return Promise.resolve();
-
-                        if (!dryRun) {
-                            const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
-                            LOGGER.verbose(`${videoFile} - Writing synced SRT to ${outFile}`);
-                            return Srt.writeLinesToStream(lines, fs.createWriteStream(outFile));
-                        }
-
-                        return Promise.resolve();
-                    });
-            });
+        return StreamUtils.toPromise(ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream);
     }
 
     private static calculateTimeShift(matches: any[]) {
