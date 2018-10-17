@@ -39,10 +39,6 @@ export class MatcherStream extends Transform {
 
                     this.push({
                         line: line,
-                        speech: {
-                            startTime: data.speech.startTime,
-                            words: alternative.words
-                        },
                         hyp: {
                             transcript: transcript,
                             startTime: this.config.seekTime + startTime,

@@ -130,28 +130,10 @@ export class AutoSubSync {
                         };
                         LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile} with seek time ${seekTime} and duration ${duration}`);
                         return AutoSubSync.findMatches(videoFile, lines, options);
-                    })).then((matches: any[]) => {
+                    })).then((matches: any[][]) => {
                         const totalMatches = matches.reduce((out: any[], curr: any[]) => [...out, ...curr], []);
 
-                        if (totalMatches.length > 0) {
-                            LOGGER.debug(JSON.stringify(matches, null, 2));
-
-                            const shift = AutoSubSync.calculateTimeShift(totalMatches);
-                            LOGGER.verbose(`${videoFile} - Number of matches: ${totalMatches.length}`);
-                            LOGGER.verbose(`${videoFile} - Adjusting subs by ${shift} ms`);
-
-                            const shiftedLines = AutoSubSync.shiftLines(lines, shift, videoFile);
-
-                            if (!dryRun) {
-                                const outFile = overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${postfix}.srt`;
-                                LOGGER.verbose(`${videoFile} - Writing synced SRT to ${outFile}`);
-                                return Srt.writeLinesToStream(shiftedLines, fs.createWriteStream(outFile));
-                            }
-
-                            return Promise.resolve();
-                        }
-                        LOGGER.warn(`${videoFile} - No matches`);
-                        return Promise.resolve();
+                        return AutoSubSync.shiftSubtitles(videoFile, srtFile, lines, totalMatches, arguments[2]);
                     })
                 })
         })
@@ -198,11 +180,35 @@ export class AutoSubSync {
         return StreamUtils.toPromise(ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream);
     }
 
+    private static shiftSubtitles(videoFile: string, srtFile: string, lines: SrtLine[], matches: any[], options: AutoSubSyncOptions) {
+        if (matches.length > 0) {
+            LOGGER.debug(JSON.stringify(matches, null, 2));
+
+            const shift = AutoSubSync.calculateTimeShift(matches);
+            LOGGER.verbose(`${videoFile} - Number of matches: ${matches.length}`);
+            LOGGER.verbose(`${videoFile} - Adjusting subs by ${shift} ms`);
+
+            const shiftedLines = AutoSubSync.shiftSubtitleLines(lines, shift, videoFile);
+
+            if (!options.dryRun) {
+                const outFile = options.overwrite ? srtFile : `${path.dirname(srtFile)}/${path.basename(srtFile, ".srt")}.${options.postfix}.srt`;
+                LOGGER.verbose(`${videoFile} - Writing synced SRT to ${outFile}`);
+                return Srt.writeLinesToStream(shiftedLines, fs.createWriteStream(outFile));
+            }
+
+            return Promise.resolve();
+        }
+        LOGGER.warn(`${videoFile} - No matches`);
+        return Promise.resolve();
+    }
+
     private static calculateTimeShift(matches: any[]) {
         const grouped = matches.reduce((map, match) => {
             const hypTime = match.hyp.startTime;
             const lineTime = match.line.startTime;
-            (map[match.line.number] = map[match.line.number] || []).push(hypTime - lineTime);
+            const diff = hypTime - lineTime;
+            const weightedDiff = Math.floor(diff * (match.match.percentage * match.match.percentage));
+            (map[match.line.number] = map[match.line.number] || []).push(weightedDiff);
             return map;
         }, {});
         LOGGER.debug("Grouped matches", grouped);
@@ -229,7 +235,7 @@ export class AutoSubSync {
         return Math.floor(numbers.reduce((total, diff) => total + diff, 0) / numbers.length);
     }
 
-    private static shiftLines(lines: SrtLine[], shift: number, videoFile: string) {
+    private static shiftSubtitleLines(lines: SrtLine[], shift: number, videoFile: string) {
         return lines.map(l => {
             const startTime = l.startTime + shift;
             const endTime = l.endTime + shift;
