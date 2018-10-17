@@ -9,6 +9,7 @@ import {LOGGER} from "./logger/logger";
 import * as glob from "fast-glob";
 import {FfmpegStream} from "./streams/ffmpeg-stream";
 import {StopStream} from "./util/stop-stream";
+import {FFProbe} from "./util/ffprobe";
 
 const audioFrequency = 16000.0;
 
@@ -19,7 +20,9 @@ const SUPPORTED_LANGUAGES = {
 };
 
 export interface AutoSubSyncOptions {
+    runCount?: number,
     seekTime?: number
+    seekPercentage?: number
     duration?: number
 
     matchTreshold?: number
@@ -38,13 +41,7 @@ export class AutoSubSync {
 
     static synchronizeAll(videoGlob: string,
                           {
-                              seekTime = 0,
-                              duration = 15000,
-                              matchTreshold = 0.80,
-                              minWordMatchCount = 4,
-                              overwrite = false,
                               postfix = 'synced',
-                              dryRun = false,
                               language = "en"
                           }: AutoSubSyncOptions = {}) {
         if (!SUPPORTED_LANGUAGES[language]) {
@@ -100,27 +97,55 @@ export class AutoSubSync {
         });
     }
 
-    static synchronize(videoFile: string,
-                       srtFile: string,
-                       {
-                           seekTime = 0,
-                           duration = 15000,
-                           matchTreshold = 0.80,
-                           minWordMatchCount = 4,
-                           overwrite = false,
-                           postfix = 'synced',
-                           dryRun = false,
-                           language = "en-US",
-                           speechApiKeyFile
-                       }: AutoSubSyncOptions = {}) {
-        LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile}`);
+    static synchronize(videoFile: string, srtFile: string, {
+        runCount = 1,
+        seekPercentage = 0.2
+    }: AutoSubSyncOptions = {}) {
+        if (runCount < 1) {
+            return Promise.reject(`Invalid run count ${runCount}`);
+        }
+        LOGGER.debug(`Run count ${runCount}`);
+        LOGGER.debug(`Seek percentage ${seekPercentage}`);
+
+        return FFProbe.getInfo(videoFile).then(info => {
+            LOGGER.debug("Video file info", info);
+
+            const totalDuration = +info.format.duration;
+            LOGGER.debug(`Total duration ${totalDuration}`);
+            const seekTime = seekPercentage * totalDuration;
+            LOGGER.debug(`Seek time ${seekTime}`);
+            const chunkTime = (totalDuration - seekTime) / runCount;
+            LOGGER.debug(`Chunk time ${chunkTime}`);
+
+            return Promise.all([...Array(runCount).keys()].map(i => {
+                const options = {
+                    ...arguments[2],
+                    seekTime: seekTime + (chunkTime * i)
+                };
+                return AutoSubSync.actualSynchronize(videoFile, srtFile, options);
+            })).then(() => Promise.resolve())
+        });
+
+    }
+
+    static actualSynchronize(videoFile: string,
+                             srtFile: string,
+                             {
+                                 seekTime = 0,
+                                 duration = 15,
+                                 matchTreshold = 0.80,
+                                 minWordMatchCount = 4,
+                                 overwrite = false,
+                                 postfix = 'synced',
+                                 dryRun = false,
+                                 language = "en-US",
+                                 speechApiKeyFile
+                             }: AutoSubSyncOptions = {}) {
+        LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile} with seek time ${seekTime} and duration ${duration}`);
 
         return Srt.readLinesFromStream(fs.createReadStream(srtFile))
             .then(lines => {
-                //const seekBytes = seekTime * 32; // 32 bytes for 1 ms
-                const fileStream = fs.createReadStream(videoFile);
-
-                const ffMpegStream = FfmpegStream.create();
+                const ffMpegStream = FfmpegStream.create(videoFile, seekTime);
 
                 const vadStream = VAD.createStream({
                     audioFrequency: audioFrequency,
@@ -131,7 +156,7 @@ export class AutoSubSync {
                 const matcherStream = MatcherStream.create(lines, {
                     matchTreshold: matchTreshold,
                     minWordMatchCount: minWordMatchCount,
-                    seekTime: seekTime
+                    seekTime: seekTime * 1000
                 });
 
                 const recognizerStream = RecognizerStream.create({
@@ -142,9 +167,9 @@ export class AutoSubSync {
                     enableWordTimeOffsets: true
                 }, speechApiKeyFile);
 
-                const stopStream = new StopStream(fileStream, duration);
+                const stopStream = new StopStream(ffMpegStream, duration * 1000);
 
-                return StreamUtils.toPromise(fileStream, ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream)
+                return StreamUtils.toPromise(ffMpegStream, vadStream, stopStream, recognizerStream, matcherStream)
                     .then((matches: any[]) => {
                         if (matches.length > 0) {
                             LOGGER.debug(JSON.stringify(matches, null, 2));

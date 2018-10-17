@@ -27,21 +27,29 @@ require('yargs')
         return AutoSubSync.synchronizeAll(argv.videoFile, argv);
     })
     .options({
-        // seekTime: {
-        //     alias: 's',
-        //     default: 0,
-        //     global: true,
-        //     requiresArg: true,
-        //     type: 'number',
-        //     describe: 'Seek time (ms) in video file to start syncing'
-        // },
-        duration: {
-            alias: 'd',
-            default: 60000,
+        runCount: {
+            alias: 'r',
+            default: 1,
             global: true,
             requiresArg: true,
             type: 'number',
-            describe: 'Max duration of syncing in ms'
+            describe: 'Number of runs to try matching subtitles in the video file'
+        },
+        seekPercentage: {
+            alias: 's',
+            default: 0.0,
+            global: true,
+            requiresArg: true,
+            type: 'number',
+            describe: 'Seek percentage (0.00 - 1.00) in video file to start syncing'
+        },
+        duration: {
+            alias: 'd',
+            default: 60,
+            global: true,
+            requiresArg: true,
+            type: 'number',
+            describe: 'Max duration of syncing in seconds'
         },
         minWordMatchCount: {
             alias: 'c',

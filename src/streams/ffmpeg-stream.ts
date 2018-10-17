@@ -4,10 +4,12 @@ import {LOGGER} from "../logger/logger";
 
 export class FfmpegStream {
 
-    static create() {
+    static create(inputFile: string, seekTime: number) {
         const proc = child_process.spawn("ffmpeg", [
+            "-ss",
+            seekTime.toString(),
             "-i",
-            "pipe:0",
+            inputFile,
             "-ac",
             "1",
             "-ar",

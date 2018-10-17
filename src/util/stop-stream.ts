@@ -24,7 +24,7 @@ export class StopStream extends Transform {
         if (this.totalDuration >= this.maxDuration) {
             LOGGER.debug("Max duration reached, stopping stream");
             //this.stream.push(null); // A bit hacky...
-            this.stream.destroy();
+            //this.stream.destroy();
             this.finished = true;
             this.push(null);
             return callback();
