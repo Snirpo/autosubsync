@@ -44,6 +44,7 @@ export class MatcherStream extends Transform {
                             startTime: this.config.seekTime + startTime,
                             endTime: this.config.seekTime + endTime
                         },
+                        speech: data.speech,
                         match: bestMatch
                     });
                 }

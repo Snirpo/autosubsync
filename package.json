@@ -26,7 +26,7 @@
     "node": ">=8.0.0"
   },
   "dependencies": {
-    "@google-cloud/speech": "2.0.0",
+    "@google-cloud/speech": "^2.1.1",
     "end-of-stream": "^1.4.1",
     "fast-glob": "^2.2.3",
     "lodash": "^4.17.11",
