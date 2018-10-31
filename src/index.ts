@@ -10,6 +10,8 @@ import * as glob from "fast-glob";
 import {FfmpegStream} from "./streams/ffmpeg-stream";
 import {StopStream} from "./util/stop-stream";
 import {FFProbe} from "./util/ffprobe";
+import {ArrayUtils} from "./util/array-utils";
+import {ObjectUtils} from "./util/object-utils";
 
 const audioFrequency = 16000.0;
 
@@ -131,7 +133,7 @@ export class AutoSubSync {
                         LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile} with seek time ${seekTime} and duration ${duration}`);
                         return AutoSubSync.findMatches(videoFile, lines, options);
                     })).then((matches: any[][]) => {
-                        const totalMatches = matches.reduce((out: any[], curr: any[]) => [...out, ...curr], []);
+                        const totalMatches = ArrayUtils.flatten(matches);
 
                         return AutoSubSync.shiftSubtitles(videoFile, srtFile, lines, totalMatches, arguments[2]);
                     })
@@ -203,49 +205,77 @@ export class AutoSubSync {
     }
 
     private static calculateTimeShift(matches: any[]) {
-        const grouped = matches.reduce((map, match) => {
-            const hypTime = match.hyp.startTime;
-            const lineTime = match.line.startTime;
-            const diff = hypTime - lineTime;
+        const filteredMatches = AutoSubSync.filterInvalidMatches(matches);
+        LOGGER.debug("Filtered matches", filteredMatches.map(match => match.diff));
+
+        const finalMatches = AutoSubSync.filterMultipleMatches(filteredMatches);
+        LOGGER.debug("Final matches", finalMatches);
+
+        const finalMatchAvg = ArrayUtils.average(finalMatches);
+        LOGGER.debug(`Final match avg: ${finalMatchAvg}`);
+
+        return finalMatchAvg;
+    }
+
+    private static filterInvalidMatches(matches: any[]) {
+        const sortedMatches = matches.map(match => {
+            const diff = match.hyp.startTime - match.line.startTime;
             const weightedDiff = Math.floor(diff * (match.match.percentage * match.match.percentage));
-            (map[match.line.number] = map[match.line.number] || []).push(weightedDiff);
-            return map;
-        }, {});
+            return {
+                ...match,
+                diff: weightedDiff
+            }
+        }).sort((a, b) => Math.abs(a.diff) - Math.abs(b.diff));
+        LOGGER.debug("Sorted matches", sortedMatches.map(match => match.diff));
+
+        let res = [];
+        let total = 0;
+        let avg = 0;
+        for (let i = 0; i < sortedMatches.length; i++) {
+            const diff = Math.abs(sortedMatches[i].diff - avg);
+            if (diff > 1000) { //TODO: maybe should be configurable
+                return res;
+            }
+
+            total += sortedMatches[i].diff;
+            avg = total / (i + 1);
+            res.push(sortedMatches[i]);
+        }
+        return res;
+    }
+
+    private static filterMultipleMatches(matches: any[]) {
+        const grouped = ArrayUtils.groupBy(
+            matches,
+            match => match.line.number,
+            match => match.diff
+        );
         LOGGER.debug("Grouped matches", grouped);
-        const groupedValues = Object.keys(grouped).map(key => grouped[key]);
+
+        const groupedValues = ObjectUtils.values(grouped);
 
         const singleMatches = groupedValues.filter(m => m.length === 1).map(m => m[0]);
         LOGGER.debug("Single matches", singleMatches);
-        const singleMatchAvg = AutoSubSync.calculateAverage(singleMatches);
+
+        const singleMatchAvg = ArrayUtils.average(singleMatches);
         LOGGER.debug(`Single match avg: ${singleMatchAvg}`);
 
-        const allMatches = groupedValues.map((matches: number[]) => {
-            return matches.reduce((c, m) => {
-                const diff = Math.abs(m - singleMatchAvg);
-                return diff < c ? m : c;
-            })
+        return groupedValues.map((diffs: any[]) => {
+            return ArrayUtils.sortBy(diffs, diff => Math.abs(diff - singleMatchAvg))[0];
         });
-        LOGGER.debug("All matches", allMatches);
-        const allMatchAvg = AutoSubSync.calculateAverage(allMatches);
-        LOGGER.debug(`All match avg: ${allMatchAvg}`);
-        return allMatchAvg;
-    }
-
-    private static calculateAverage(numbers: number[]) {
-        return Math.floor(numbers.reduce((total, diff) => total + diff, 0) / numbers.length);
     }
 
     private static shiftSubtitleLines(lines: SrtLine[], shift: number, videoFile: string) {
-        return lines.map(l => {
-            const startTime = l.startTime + shift;
-            const endTime = l.endTime + shift;
+        return lines.map(line => {
+            const startTime = line.startTime + shift;
+            const endTime = line.endTime + shift;
             if (startTime < 0 || endTime < 0) {
                 throw new Error(`${videoFile} - New time of SRT line smaller than 0`);
             }
             return {
-                ...l,
-                startTime: l.startTime + shift,
-                endTime: l.endTime + shift
+                ...line,
+                startTime: startTime,
+                endTime: endTime
             };
         });
     }
