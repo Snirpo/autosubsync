@@ -1,5 +1,5 @@
 import {Duplex, DuplexOptions, Readable, Writable} from "stream";
-import * as eos from "end-of-stream";
+import {StreamUtils} from "../util/stream-utils";
 
 export class DuplexedStream extends Duplex {
     private _ondrain;
@@ -23,23 +23,14 @@ export class DuplexedStream extends Duplex {
     }
 
     private _setStream(readable: Readable, writable: Writable) {
-        const readableEndListener = eos(readable, err => {
-            if (err) {
-                this.destroy(err);
-            }
-            else {
-                this._readableListeners();
-                this.push(null);
-            }
-        });
-        const writableEndListener = eos(writable, err => {
-            if (err) {
-                this.destroy(err);
-            }
-            else {
-                this._writableListeners();
-            }
-        });
+        StreamUtils.onEnd(readable).then(() => {
+            this._readableListeners();
+            this.push(null);
+        }).catch(err => this.destroy(err));
+
+        StreamUtils.onEnd(writable)
+            .then(() => this._writableListeners())
+            .catch(err => this.destroy(err));
 
         const readableListener = () => this._forwardRead(readable);
         readable.on('readable', readableListener);
@@ -51,15 +42,8 @@ export class DuplexedStream extends Duplex {
         };
         writable.on('drain', drainListener);
 
-        this._readableListeners = () => {
-            readable.removeListener('readable', readableListener);
-            readableEndListener();
-        };
-
-        this._writableListeners = () => {
-            writable.removeListener('drain', drainListener);
-            writableEndListener();
-        };
+        this._readableListeners = () => readable.removeListener('readable', readableListener);
+        this._writableListeners = () => writable.removeListener('drain', drainListener);
 
         this._readable = readable;
         this._writable = writable;

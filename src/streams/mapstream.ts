@@ -1,5 +1,5 @@
 import {Duplex, DuplexOptions} from "stream";
-import * as eos from "end-of-stream";
+import {StreamUtils} from "../util/stream-utils";
 
 export interface StreamConfig {
     stream: Duplex;
@@ -33,14 +33,9 @@ export class MapStream extends Duplex {
     }
 
     private _setStream(config: StreamConfig) {
-        const endListener = eos(config.stream, err => {
-            if (err) {
-                this.destroy(err);
-            }
-            else {
-                this._removeStream();
-            }
-        });
+        StreamUtils.onEnd(config.stream)
+            .then(() => this._removeStream())
+            .catch(err => this.destroy(err));
 
         const readableListener = () => this._forwardRead(config);
         config.stream.on('readable', readableListener);
@@ -57,7 +52,6 @@ export class MapStream extends Duplex {
             removeListeners: () => {
                 config.stream.removeListener('readable', readableListener);
                 config.stream.removeListener('drain', drainListener);
-                endListener();
             }
         };
     }

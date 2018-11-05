@@ -218,30 +218,24 @@ export class AutoSubSync {
     }
 
     private static filterInvalidMatches(matches: any[]) {
-        const sortedMatches = matches.map(match => {
+        const matchesWithDiff = matches.map(match => {
             const diff = match.hyp.startTime - match.line.startTime;
             const weightedDiff = Math.floor(diff * (match.match.percentage * match.match.percentage));
             return {
                 ...match,
                 diff: weightedDiff
             }
-        }).sort((a, b) => Math.abs(a.diff) - Math.abs(b.diff));
-        LOGGER.debug("Sorted matches", sortedMatches.map(match => match.diff));
+        });
+        LOGGER.debug("Matches with diff", matchesWithDiff.map(match => match.diff));
 
-        let res = [];
-        let total = 0;
-        let avg = 0;
-        for (let i = 0; i < sortedMatches.length; i++) {
-            const diff = Math.abs(sortedMatches[i].diff - avg);
-            if (diff > 1000) { //TODO: maybe should be configurable
-                return res;
-            }
+        const matchesWithSameDiff = matchesWithDiff.map(match => {
+            return matchesWithDiff.filter(m => Math.abs(m.diff - match.diff) < 1000)
+        });
 
-            total += sortedMatches[i].diff;
-            avg = total / (i + 1);
-            res.push(sortedMatches[i]);
-        }
-        return res;
+        const sortedMatchesWithSameDiff = matchesWithSameDiff.sort((a, b) => b.length - a.length);
+        LOGGER.debug("Sorted matches with same diff", sortedMatchesWithSameDiff.map(matches => matches.map(match => match.diff)));
+
+        return sortedMatchesWithSameDiff[0];
     }
 
     private static filterMultipleMatches(matches: any[]) {

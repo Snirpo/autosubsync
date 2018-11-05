@@ -1,6 +1,6 @@
 import {Duplex, DuplexOptions} from "stream";
-import * as eos from "end-of-stream";
 import {LOGGER} from "../logger/logger";
+import {StreamUtils} from "../util/stream-utils";
 
 export interface StreamConfig {
     stream: Duplex;
@@ -56,14 +56,10 @@ export class FlatMapStream extends Duplex {
 
     private _addStream(config: StreamConfig) {
         LOGGER.debug("Adding new stream");
-        const endListener = eos(config.stream, err => {
-            if (err) {
-                this.destroy(err);
-            }
-            else {
-                this._removeStream(config);
-            }
-        });
+
+        StreamUtils.onEnd(config.stream)
+            .then(() => this._removeStream(config))
+            .catch(err => this.destroy(err));
 
         const readableListener = () => this._forwardRead(config);
         config.stream.on('readable', readableListener);
@@ -80,7 +76,6 @@ export class FlatMapStream extends Duplex {
             removeListeners: () => {
                 config.stream.removeListener('readable', readableListener);
                 config.stream.removeListener('drain', drainListener);
-                endListener();
             }
         });
     }
