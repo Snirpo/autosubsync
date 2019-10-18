@@ -4,3 +4,4 @@ demo/
 config/
 .idea/
 *.iml
+output.txt
