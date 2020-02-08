@@ -263,13 +263,10 @@ export class AutoSubSync {
         return lines.map(line => {
             const startTime = line.startTime + shift;
             const endTime = line.endTime + shift;
-            if (startTime < 0 || endTime < 0) {
-                throw new Error(`${videoFile} - New time of SRT line smaller than 0`);
-            }
             return {
                 ...line,
-                startTime: startTime,
-                endTime: endTime
+                startTime: startTime < 0 ? 0 : startTime,
+                endTime: endTime < 0 ? 0 : endTime
             };
         });
     }
