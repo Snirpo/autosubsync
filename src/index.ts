@@ -130,7 +130,7 @@ export class AutoSubSync {
                             ...arguments[2],
                             seekTime: seekTime + (chunkTime * i)
                         };
-                        LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile} with seek time ${seekTime} and duration ${duration}`);
+                        LOGGER.verbose(`${videoFile} - Syncing video file with SRT file ${srtFile} with seek time ${options.seekTime} and duration ${duration}`);
                         return AutoSubSync.findMatches(videoFile, lines, options);
                     })).then((matches: any[][]) => {
                         const totalMatches = ArrayUtils.flatten(matches);
